@@ -11,6 +11,15 @@ library(readr)
 library(janitor)
 library(scales)
 library(tidyverse)
+library(odbc)
+
+contabilidad <- DBI::dbConnect(odbc::odbc(),
+                               Driver   = "ODBC Driver 17 for SQL Server",
+                               Server   = "192.168.8.14",
+                               Database = "CLAMUND",
+                               UID      = "danny2",
+                               PWD      = "ReadyLove100*",
+                               Port     = 1433)
 
 # --- Configuración de Base de Datos y Almacenamiento ---
 dir_storage <- "archivos_pdf"
@@ -18,6 +27,16 @@ if (!dir.exists(dir_storage)) dir.create(dir_storage)
 
 db_path <- "registro_documentos.db"
 con <- dbConnect(SQLite(), db_path)
+
+cuentas <- tbl(contabilidad, "SCCUENTA") |> 
+  collect()
+
+saldos <- tbl(contabilidad, "SCREN_CO") |> 
+  filter(fec_emis == as.Date("2026-01-12")) |> 
+  collect()
+
+
+Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
 
 clave_diaria <- read.xlsx("clave_diaria.xlsx")
 
@@ -245,6 +264,12 @@ server <- function(input, output, session) {
   req(input$file_input)
   trigger_update()
   read.xlsx(input$file_input$datapath)
+    # Contabilidad |> 
+    #   mutate(saldo = abs(monto_d - monto_h)) %>% 
+    #   select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo) %>% 
+    #   rename()
+    #   
+    
   })
   
     
@@ -253,7 +278,7 @@ server <- function(input, output, session) {
       # 1. Procesamiento inicial de los datos cargados
       datos <- datos_db() |> 
         clean_names() |> 
-        mutate(fecha = as.character("08-01-2026"),
+        mutate(fecha = as.character("12-01-2026"),
                saldo_inicial = abs(as.numeric(saldo_inicial)),
                debe = abs(as.numeric(debe)),
                haber = abs(as.numeric(haber)),
@@ -285,7 +310,7 @@ server <- function(input, output, session) {
         
         filas_ajuste <- data.frame(
           clave = c("44090403", "559502"),
-          fecha = rep("08-01-2026", 2),
+          fecha = rep("12-01-2026", 2),
           saldo_inicial = c("0.00", "0.00"),
           debe = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00"),
           haber = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""))
