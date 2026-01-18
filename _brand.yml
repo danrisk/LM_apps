@@ -1,0 +1,23 @@
+meta:
+  name: La Mundial de Seguros
+  link: https://www.lamundialdeseguros.com
+  
+logo: 
+  medium: www/logo_color_LM.png
+
+color:
+  primary: "#162a7f"
+  secondary: "#ff6675"
+  tertiary: "#acacac"
+  success: "#091133"
+  danger: "#ff6675"
+  
+typography:
+  base: Poppins Light
+  headings: Poppins Bold
+  monospace: Constantia Bold Italic
+  # ... other colors
+defaults:
+  bootstrap:
+    # Set default Bootstrap Sass variables
+    navbar-bg: "$primary"
