@@ -11,6 +11,16 @@ library(readr)
 library(janitor)
 library(scales)
 library(tidyverse)
+library(odbc)
+
+contabilidad <- DBI::dbConnect(odbc::odbc(),
+                               Driver   = "ODBC Driver 17 for SQL Server",
+                               Server   = "192.168.8.14",
+                               Database = "CLAMUND",
+                               UID      = "danny2",
+                               PWD      = "ReadyLove100*",
+                               Port     = 1433)
+
 
 # --- Configuración de Base de Datos y Almacenamiento ---
 dir_storage <- "archivos_pdf"
@@ -18,6 +28,18 @@ if (!dir.exists(dir_storage)) dir.create(dir_storage)
 
 db_path <- "registro_documentos.db"
 con <- dbConnect(SQLite(), db_path)
+
+
+cuentas <- tbl(contabilidad, "SCCUENTA") |> 
+  collect()
+
+saldos <- tbl(contabilidad, "SCREN_CO") |> 
+  filter(fec_emis == as.Date("2026-01-12")) |> 
+  collect()
+
+
+Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+
 
 clave_diaria <- read.xlsx("clave_diaria.xlsx")
 
@@ -245,6 +267,14 @@ server <- function(input, output, session) {
   req(input$file_input)
   trigger_update()
   read.xlsx(input$file_input$datapath)
+
+    # Contabilidad |> 
+    #   mutate(saldo = abs(monto_d - monto_h)) %>% 
+    #   select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo) %>% 
+    #   rename()
+    #   
+    
+
   })
   
     
@@ -253,6 +283,7 @@ server <- function(input, output, session) {
       # 1. Procesamiento inicial de los datos cargados
       datos <- datos_db() |> 
         clean_names() |> 
+
         mutate(fecha = as.character("09-01-2026"),
                saldo_inicial = abs(as.numeric(saldo_inicial)),
                debe = abs(as.numeric(debe)),
@@ -266,6 +297,7 @@ server <- function(input, output, session) {
       
       # 3. Cálculo de la Diferencia (Activo - Pasivo/Capital)
       # Nota: Usamos la lógica de tus reactivos 'activo' y 'pasivo_capital'
+
       # val_activo <- df_base |> 
       #   filter(str_starts(as.character(clave), "^220[1-9]")) |>
       #   summarise(total = sum(as.numeric(saldo_inicial)) + sum(as.numeric(debe)) - sum(as.numeric(haber))) |> 
@@ -290,23 +322,29 @@ server <- function(input, output, session) {
       
       
       diferencia_val <- val_ingreso - val_egreso
+
+
       
       # 4. Condición: Si la diferencia es menor a cero, agregar filas
       if (!is.na(diferencia_val) && diferencia_val < 0) {
         # Valor absoluto de la diferencia para el ajuste
         ajuste <- abs(diferencia_val)
 
+        
         filas_ajuste <- data.frame(
           clave = c("44090403", "559502"),
-          fecha = rep("09-01-2026", 2),
+          fecha = rep("12-01-2026", 2),
+
           saldo_inicial = c("0.00", "0.00"),
           debe = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00"),
           haber = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""))
         )
 
-        df_base <- df_base |>
-          select(clave, fecha, saldo_inicial, debe, haber) |>
-          mutate(across(c(saldo_inicial, debe, haber),
+
+        
+        df_base <- df_base |> 
+          select(clave, fecha, saldo_inicial, debe, haber) |> 
+          mutate(across(c(saldo_inicial, debe, haber), 
                         ~number(as.numeric(.), accuracy = 0.01, decimal.mark = ".", big.mark = ""))) |>
           bind_rows(filas_ajuste)
       } else {
@@ -314,11 +352,12 @@ server <- function(input, output, session) {
 
         filas_ajuste <- data.frame(
           clave = c("44090302", "339502"),
-          fecha = rep("09-01-2026", 2),
+          fecha = rep("08-01-2026", 2),
           saldo_inicial = c("0.00", "0.00"),
           debe = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = "")),
           haber = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00")
         )
+
 
         df_base <- df_base |>
           select(clave, fecha, saldo_inicial, debe, haber) |>
@@ -327,6 +366,7 @@ server <- function(input, output, session) {
           bind_rows(filas_ajuste)
       }
 
+      
       return(df_base)
     })
   
@@ -343,6 +383,7 @@ server <- function(input, output, session) {
   pasivo_capital <- reactive({
     
     balance_filtrado() |> 
+
       # group_by(clave) |> 
       filter(str_starts(as.character(clave), "^(440[1-9]|4410)")) |>
       summarise(`Total Pasivo + Capital` = sum(as.numeric(saldo_inicial)) + sum(as.numeric(haber)) - sum(as.numeric(debe)))
@@ -363,8 +404,11 @@ server <- function(input, output, session) {
   
   ingreso <- reactive({
     
+
     balance_filtrado() |>
       # group_by(clave) |> 
+
+    balance_filtrado() |> 
       filter(str_starts(as.character(clave), "^(5501|5521|5531|5541|5581|5595)")) |>
       summarise(`Total Ingresos` = sum(as.numeric(saldo_inicial)) + sum(as.numeric(haber)) - sum(as.numeric(debe)))
     
@@ -382,6 +426,7 @@ server <- function(input, output, session) {
              Diferencia_amp = Diferencia - Diferencia_EI) |>
       relocate(Diferencia, .after = `Total Pasivo + Capital`)
 
+
     datatable(df, options = list(language =list(url = traduccion_es),
                                  dom = 't',
                                  ordering = FALSE)) |>
@@ -394,6 +439,19 @@ server <- function(input, output, session) {
                      digits = 2)
 
     
+
+    
+    datatable(df, options = list(language =list(url = traduccion_es),
+                                 dom = 't',
+                                 ordering = FALSE)) |>
+      formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
+      formatCurrency(columns = c('Total Activo', 'Total Pasivo + Capital', 'Diferencia', 'Total Ingresos', 'Total Egresos', 'Diferencia_EI', 'Diferencia_amp'), 
+                     currency = "Bs. ", 
+                     interval = 3, 
+                     mark = ".", 
+                     dec.mark = ",",
+                     digits = 2)
+
     
    
   })
@@ -441,7 +499,9 @@ server <- function(input, output, session) {
   
   output$control <- renderDT({
          
+
     cuadro_control()
+
    
   })
   
