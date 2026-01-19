@@ -13,13 +13,13 @@ library(scales)
 library(tidyverse)
 library(odbc)
 
-contabilidad <- DBI::dbConnect(odbc::odbc(),
-                               Driver   = "ODBC Driver 17 for SQL Server",
-                               Server   = "192.168.8.14",
-                               Database = "CLAMUND",
-                               UID      = "danny2",
-                               PWD      = "ReadyLove100*",
-                               Port     = 1433)
+# contabilidad <- DBI::dbConnect(odbc::odbc(),
+#                                Driver   = "ODBC Driver 17 for SQL Server",
+#                                Server   = "192.168.8.14",
+#                                Database = "CLAMUND",
+#                                UID      = "danny2",
+#                                PWD      = "ReadyLove100*",
+#                                Port     = 1433)
 
 
 # --- Configuración de Base de Datos y Almacenamiento ---
@@ -30,15 +30,15 @@ db_path <- "registro_documentos.db"
 con <- dbConnect(SQLite(), db_path)
 
 
-cuentas <- tbl(contabilidad, "SCCUENTA") |> 
-  collect()
-
-saldos <- tbl(contabilidad, "SCREN_CO") |> 
-  filter(fec_emis == as.Date("2026-01-12")) |> 
-  collect()
-
-
-Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+# cuentas <- tbl(contabilidad, "SCCUENTA") |> 
+#   collect()
+# 
+# saldos <- tbl(contabilidad, "SCREN_CO") |> 
+#   filter(fec_emis == as.Date("2026-01-12")) |> 
+#   collect()
+# 
+# 
+# Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
 
 
 clave_diaria <- read.xlsx("clave_diaria.xlsx")
@@ -283,8 +283,7 @@ server <- function(input, output, session) {
       # 1. Procesamiento inicial de los datos cargados
       datos <- datos_db() |> 
         clean_names() |> 
-
-        mutate(fecha = as.character("09-01-2026"),
+        mutate(fecha = as.character("15-01-2026"),
                saldo_inicial = abs(as.numeric(saldo_inicial)),
                debe = abs(as.numeric(debe)),
                haber = abs(as.numeric(haber)),
@@ -333,7 +332,7 @@ server <- function(input, output, session) {
         
         filas_ajuste <- data.frame(
           clave = c("44090403", "559502"),
-          fecha = rep("12-01-2026", 2),
+          fecha = rep("15-01-2026", 2),
 
           saldo_inicial = c("0.00", "0.00"),
           debe = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00"),
@@ -352,7 +351,7 @@ server <- function(input, output, session) {
 
         filas_ajuste <- data.frame(
           clave = c("44090302", "339502"),
-          fecha = rep("08-01-2026", 2),
+          fecha = rep("15-01-2026", 2),
           saldo_inicial = c("0.00", "0.00"),
           debe = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = "")),
           haber = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00")
@@ -383,8 +382,6 @@ server <- function(input, output, session) {
   pasivo_capital <- reactive({
     
     balance_filtrado() |> 
-
-      # group_by(clave) |> 
       filter(str_starts(as.character(clave), "^(440[1-9]|4410)")) |>
       summarise(`Total Pasivo + Capital` = sum(as.numeric(saldo_inicial)) + sum(as.numeric(haber)) - sum(as.numeric(debe)))
     
@@ -403,10 +400,6 @@ server <- function(input, output, session) {
   
   
   ingreso <- reactive({
-    
-
-    balance_filtrado() |>
-      # group_by(clave) |> 
 
     balance_filtrado() |> 
       filter(str_starts(as.character(clave), "^(5501|5521|5531|5541|5581|5595)")) |>
