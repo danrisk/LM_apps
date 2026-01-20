@@ -12,7 +12,9 @@ library(janitor)
 library(scales)
 library(tidyverse)
 library(pointblank)
-
+library(future)
+library(promises)
+plan(multisession)
 
 
 
@@ -198,13 +200,16 @@ server <- function(input, output, session) {
           
           mainPanel(
             tabsetPanel(
-            #   tabPanel(
-            #   dateRangeInput("f_eval", "Introduzca periodo a evaluar:",
-            #             start = Sys.Date(),
-            #             end = Sys.Date(),
-            #             format = "dd-mm-yyyy",
-            #             language = "es")
-            # ),
+              #   tabPanel(
+              #   dateRangeInput("f_eval", "Introduzca periodo a evaluar:",
+              #             start = Sys.Date(),
+              #             end = Sys.Date(),
+              #             format = "dd-mm-yyyy",
+              #             language = "es")
+              # ),
+              tabPanel("DataOps (Auditoría Calidad de Datos)",
+                       uiOutput("sys")
+              ),
               tabPanel("Primas/ Comisiones / Devoluciones", 
                        DTOutput("primas_SYSIP"),
                        br(),
@@ -295,7 +300,7 @@ server <- function(input, output, session) {
   })
   
   
- 
+  
   
   
   
@@ -381,104 +386,183 @@ server <- function(input, output, session) {
     prima_bruta <- Contabilidad_consolidada |>
       filter(fec_emis >= as.Date("2026-01-01"),
              fec_emis <= as.Date("2026-01-15")) |> 
-      mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*"),
-             Comisiones = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
+      mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
       group_by(Ramo) |> 
-      summarise(`Prima Bruta` = sum(abs(saldo)),
-                Comisiones = sum(Comisiones, na.rm = TRUE)) |> 
+      summarise(`Prima Bruta` = sum(abs(saldo))) |> 
       drop_na(Ramo)
     
-   prima_bruta
+    prima_bruta
     
   })
+  
+  
+  
+  Recibos_sys <- reactive({
+    
+    Recibos <- tbl(SYSIP, "ADRECIBOS") |> 
+      filter(
+        fcobro >= as.Date("2026-01-01"),
+        fcobro <= as.Date("2026-01-15"),
+        iestadorec == "C") |> 
+      collect()
+    
+    maramos <- tbl(SYSIP, "MARAMOS") |> 
+      collect()
+    
+    Recibos_ramos <- Recibos |> 
+      left_join(maramos, by ="cramo")
+    
+    Recibos_detalle <- Recibos_ramos |> 
+      select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
+             cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
+             pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
+      rename("Nº de Póliza" = cnpoliza,
+             Ramo = xdescripcion_l,
+             "Fecha de Emision Recibo" = femision,
+             "Fecha desde Póliza" = fdesde_pol,
+             "Fecha Hasta Póliza" = fhasta_pol,
+             "Cédula Tomador" = ctenedor,
+             "Nro de Recibo" = cnrecibo,
+             "Fecha desde Recibo" = fdesde,
+             "Fecha hasta Recibo" = fhasta,
+             "Fecha de Cobro" = fcobro,
+             Moneda = cmoneda,
+             "Tasa de Cambio" = ptasamon_pago,
+             "Suma Asegurada" = msumabruta,
+             "Suma Asegurada Moneda Extranjera" = msumabrutaext,
+             "Prima Bruta" = mprimabruta,
+             "Prima Bruta Moneda Extranjera" = mprimabrutaext,
+             "Porcentaje de Comisión" = pcomision,
+             "Monto de Comisión" = mcomision,
+             "Monto Comision Extranjera" = mcomisionext,
+             "Prima Cedida en Reaseguro" = mpcedida,
+             "Prima Cedida Moneda Extranjera"= mpcedidaext,
+             "Prima Cedida Facultativo" = mpfp,
+             "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
+             "Prima Retenida" = mpret,
+             "Prima Retenida Moneda Extranjera" = mpretext)
+    
+    Recibos_detalle
+    
+  })
+  
+  
+  Recibos_contables <- reactive({
+    
+    cuentas <- tbl(PROFIT, "SCCUENTA") |> 
+      collect()
+    
+    saldos <- tbl(PROFIT, "SCREN_CO") |> 
+      filter(fec_emis >= as.Date("2026-01-01"),
+             fec_emis <= as.Date("2026-01-15")) |> 
+      collect()
+    
+    
+    Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+    
+    Contabilidad_consolidada <- Contabilidad |> 
+      mutate(saldo = monto_d - monto_h,
+             nro_recibo = str_extract(descri, "(?<=Nro_Recibo\\s|RECIBO\\s)[0-9-]+")) |> 
+      select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
+    
+    Contabilidad_consolidada
+    
+  })
+  
+  
+  
+  
+  
+  
   
   
   rrc <- reactive({
     
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
-    filter(
-      fcobro >= as.Date("2026-01-01"),
-      fcobro <= as.Date("2026-01-15"),
-      iestadorec == "C") |> 
-    collect()
-  
-  maramos <- tbl(SYSIP, "MARAMOS") |> 
-    collect()
-  
-  Recibos_ramos <- Recibos_SYSIP |> 
-    left_join(maramos, by ="cramo")
-  
-  Recibos_detalle <- Recibos_ramos |> 
-    select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
-           cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
-           pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
-    rename("Nº de Póliza" = cnpoliza,
-           Ramo = xdescripcion_l,
-           "Fecha de Emision Recibo" = femision,
-           "Fecha desde Póliza" = fdesde_pol,
-           "Fecha Hasta Póliza" = fhasta_pol,
-           "Cédula Tomador" = ctenedor,
-           "Nro de Recibo" = cnrecibo,
-           "Fecha desde Recibo" = fdesde,
-           "Fecha hasta Recibo" = fhasta,
-           "Fecha de Cobro" = fcobro,
-           Moneda = cmoneda,
-           "Tasa de Cambio" = ptasamon_pago,
-           "Suma Asegurada" = msumabruta,
-           "Suma Asegurada Moneda Extranjera" = msumabrutaext,
-           "Prima Bruta" = mprimabruta,
-           "Prima Bruta Moneda Extranjera" = mprimabrutaext,
-           "Porcentaje de Comisión" = pcomision,
-           "Monto de Comisión" = mcomision,
-           "Monto Comision Extranjera" = mcomisionext,
-           "Prima Cedida en Reaseguro" = mpcedida,
-           "Prima Cedida Moneda Extranjera"= mpcedidaext,
-           "Prima Cedida Facultativo" = mpfp,
-           "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
-           "Prima Retenida" = mpret,
-           "Prima Retenida Moneda Extranjera" = mpretext)
-  
-  
-  RRC <- Recibos_detalle |> 
-    mutate(`Fecha desde Recibo`= as.Date(`Fecha desde Recibo`),
-           `Fecha hasta Recibo` = as.Date(`Fecha hasta Recibo`),
-           `Fecha de Cobro` = as.Date(`Fecha de Cobro`),
-           ANIO = year(`Fecha de Cobro`),
-           Mes = month(`Fecha de Cobro`, label = TRUE),
-           prima_neta = as.numeric(`Prima Bruta`) - as.numeric(`Monto de Comisión`),
-           fecha_evaluacion = as.Date("2026-01-15"),
-           dias_por_transcurrir = case_when(
-             as.numeric(`Fecha hasta Recibo`) <= fecha_evaluacion ~ 0,
-             as.numeric(`Fecha desde Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`),
-             as.numeric(`Fecha hasta Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(fecha_evaluacion),
-             TRUE ~ 0),
-           proporcion_RRC = as.numeric(dias_por_transcurrir) / (as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`)),
-           reserva_de_riesgo_en_curso = as.numeric(proporcion_RRC) * as.numeric(prima_neta),
-           proporcion_RRC = replace_na(proporcion_RRC, 0),
-           reserva_de_riesgo_en_curso = replace_na(reserva_de_riesgo_en_curso, 0),
-           prima_cedida = ifelse(as.numeric(prima_neta) * 0.8 < 0, 0,as.numeric(prima_neta) * 0.8),
-           rrc_reaseguro = as.numeric(proporcion_RRC) * prima_cedida,
-           prima_retenida = as.numeric(prima_neta) - as.numeric(prima_cedida),
-           rrc_retenida = as.numeric(reserva_de_riesgo_en_curso) - as.numeric(rrc_reaseguro),
-           rrc_reaseguro = replace_na(rrc_reaseguro, 0),
-           prima_retenida = replace_na(prima_retenida, 0),
-           rrc_retenida = replace_na(rrc_retenida, 0),
-           prima_cedida = replace_na(prima_cedida, 0)
-    )
-  
-  
-  RRC_RAMO <- RRC |> 
-    group_by(Ramo) |> 
-    summarise(Prima = sum(`Prima Bruta`),
-              `Reserva de Riesgo en Curso Totales` = sum(reserva_de_riesgo_en_curso),
-              `Prima Cedida` = sum(prima_cedida),
-              `RRC Reaseguradores` = sum(rrc_reaseguro),
-              `Prima Retenida` = sum(prima_retenida),
-              `RRC Retenida` = sum(rrc_retenida)) %>% 
-    mutate(`Prima Cedida` = replace_na(`Prima Cedida`, 0))
-  
-  RRC_RAMO
-  
+      filter(
+        fcobro >= as.Date("2026-01-01"),
+        fcobro <= as.Date("2026-01-15"),
+        iestadorec == "C") |> 
+      collect()
+    
+    maramos <- tbl(SYSIP, "MARAMOS") |> 
+      collect()
+    
+    Recibos_ramos <- Recibos_SYSIP |> 
+      left_join(maramos, by ="cramo")
+    
+    Recibos_detalle <- Recibos_ramos |> 
+      select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
+             cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
+             pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
+      rename("Nº de Póliza" = cnpoliza,
+             Ramo = xdescripcion_l,
+             "Fecha de Emision Recibo" = femision,
+             "Fecha desde Póliza" = fdesde_pol,
+             "Fecha Hasta Póliza" = fhasta_pol,
+             "Cédula Tomador" = ctenedor,
+             "Nro de Recibo" = cnrecibo,
+             "Fecha desde Recibo" = fdesde,
+             "Fecha hasta Recibo" = fhasta,
+             "Fecha de Cobro" = fcobro,
+             Moneda = cmoneda,
+             "Tasa de Cambio" = ptasamon_pago,
+             "Suma Asegurada" = msumabruta,
+             "Suma Asegurada Moneda Extranjera" = msumabrutaext,
+             "Prima Bruta" = mprimabruta,
+             "Prima Bruta Moneda Extranjera" = mprimabrutaext,
+             "Porcentaje de Comisión" = pcomision,
+             "Monto de Comisión" = mcomision,
+             "Monto Comision Extranjera" = mcomisionext,
+             "Prima Cedida en Reaseguro" = mpcedida,
+             "Prima Cedida Moneda Extranjera"= mpcedidaext,
+             "Prima Cedida Facultativo" = mpfp,
+             "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
+             "Prima Retenida" = mpret,
+             "Prima Retenida Moneda Extranjera" = mpretext)
+    
+    
+    RRC <- Recibos_detalle |> 
+      mutate(`Fecha desde Recibo`= as.Date(`Fecha desde Recibo`),
+             `Fecha hasta Recibo` = as.Date(`Fecha hasta Recibo`),
+             `Fecha de Cobro` = as.Date(`Fecha de Cobro`),
+             ANIO = year(`Fecha de Cobro`),
+             Mes = month(`Fecha de Cobro`, label = TRUE),
+             prima_neta = as.numeric(`Prima Bruta`) - as.numeric(`Monto de Comisión`),
+             fecha_evaluacion = as.Date("2026-01-15"),
+             dias_por_transcurrir = case_when(
+               as.numeric(`Fecha hasta Recibo`) <= fecha_evaluacion ~ 0,
+               as.numeric(`Fecha desde Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`),
+               as.numeric(`Fecha hasta Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(fecha_evaluacion),
+               TRUE ~ 0),
+             proporcion_RRC = as.numeric(dias_por_transcurrir) / (as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`)),
+             reserva_de_riesgo_en_curso = as.numeric(proporcion_RRC) * as.numeric(prima_neta),
+             proporcion_RRC = replace_na(proporcion_RRC, 0),
+             reserva_de_riesgo_en_curso = replace_na(reserva_de_riesgo_en_curso, 0),
+             prima_cedida = ifelse(as.numeric(prima_neta) * 0.8 < 0, 0,as.numeric(prima_neta) * 0.8),
+             rrc_reaseguro = as.numeric(proporcion_RRC) * prima_cedida,
+             prima_retenida = as.numeric(prima_neta) - as.numeric(prima_cedida),
+             rrc_retenida = as.numeric(reserva_de_riesgo_en_curso) - as.numeric(rrc_reaseguro),
+             rrc_reaseguro = replace_na(rrc_reaseguro, 0),
+             prima_retenida = replace_na(prima_retenida, 0),
+             rrc_retenida = replace_na(rrc_retenida, 0),
+             prima_cedida = replace_na(prima_cedida, 0)
+      )
+    
+    
+    RRC_RAMO <- RRC |> 
+      group_by(Ramo) |> 
+      summarise(Prima = sum(`Prima Bruta`),
+                `Reserva de Riesgo en Curso Totales` = sum(reserva_de_riesgo_en_curso),
+                `Prima Cedida` = sum(prima_cedida),
+                `RRC Reaseguradores` = sum(rrc_reaseguro),
+                `Prima Retenida` = sum(prima_retenida),
+                `RRC Retenida` = sum(rrc_retenida)
+      ) %>% 
+      mutate(`Prima Cedida` = replace_na(`Prima Cedida`, 0))
+    
+    RRC_RAMO
+    
   })
   
   
@@ -510,14 +594,31 @@ server <- function(input, output, session) {
   })
   
   
+  output$sys <- renderUI({
+    rec <- Recibos_sys()
+    future_promise({
+      scan_data(rec,
+                lang = "es",
+                navbar = FALSE,
+                sections = "OVM")
+    }, seed = TRUE) %...>% {
+      # El resultado se envía aquí cuando termina
+      .
+    }
+    
+    
+    
+  })
+  
+  
   output$primas_SYSIP <- renderDT({
     
-   
+    
     
     datatable(primas_SYSIP(), rownames = FALSE, options = list(language =list(url = traduccion_es),
-                                 dom = 't',
-                                 ordering = FALSE,
-                                 paging = FALSE)) |>
+                                                               dom = 't',
+                                                               ordering = FALSE,
+                                                               paging = FALSE)) |>
       # formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
       formatCurrency(columns = c('Prima Bruta', 'Monto de Comisión'), 
                      currency = "Bs. ", 
@@ -533,9 +634,9 @@ server <- function(input, output, session) {
     
     
     datatable(primas_PROFIT(), rownames = FALSE, options = list(language =list(url = traduccion_es),
-                                             dom = 't',
-                                             ordering = FALSE,
-                                             paging = FALSE)) |>
+                                                                dom = 't',
+                                                                ordering = FALSE,
+                                                                paging = FALSE)) |>
       # formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
       formatCurrency(columns = c('Prima Bruta'), 
                      currency = "Bs. ", 
@@ -557,13 +658,13 @@ server <- function(input, output, session) {
     dataops_source()
     
   })
-
+  
   output$rrc <- renderDT({
     
     datatable(rrc(), rownames = FALSE, options = list(language =list(url = traduccion_es),
-                                              dom = 't',
-                                              ordering = FALSE,
-                                              paging = FALSE)) |>
+                                                      dom = 't',
+                                                      ordering = FALSE,
+                                                      paging = FALSE)) |>
       # formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
       formatCurrency(columns = c('Prima', 'Reserva de Riesgo en Curso Totales', 'Prima Cedida','RRC Reaseguradores', 'Prima Retenida', 'RRC Retenida'), 
                      currency = "Bs. ", 
