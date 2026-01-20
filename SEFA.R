@@ -13,15 +13,6 @@ library(scales)
 library(tidyverse)
 library(odbc)
 
-# contabilidad <- DBI::dbConnect(odbc::odbc(),
-#                                Driver   = "ODBC Driver 17 for SQL Server",
-#                                Server   = "192.168.8.14",
-#                                Database = "CLAMUND",
-#                                UID      = "danny2",
-#                                PWD      = "ReadyLove100*",
-#                                Port     = 1433)
-
-
 # --- Configuración de Base de Datos y Almacenamiento ---
 dir_storage <- "archivos_pdf"
 if (!dir.exists(dir_storage)) dir.create(dir_storage)
@@ -201,6 +192,12 @@ server <- function(input, output, session) {
           
           mainPanel(
             tabsetPanel(
+              tabPanel("Fecha de Reporte", 
+              dateInput("f_reporte", "Introduzca la fecha a declarar:",
+                        value = Sys.Date(),
+                        format = "dd-mm-yyyy",
+                        language = "es"),
+              ),
               tabPanel("Contabilidad Preliminar", 
                        DTOutput("tabla_docs")
                        ),
@@ -279,11 +276,11 @@ server <- function(input, output, session) {
   
     
     balance_filtrado <- reactive({
-      
+      req(input$f_reporte)
       # 1. Procesamiento inicial de los datos cargados
       datos <- datos_db() |> 
         clean_names() |> 
-        mutate(fecha = as.character("15-01-2026"),
+        mutate(fecha = format(input$f_reporte, "%d-%m-%Y"),
                saldo_inicial = abs(as.numeric(saldo_inicial)),
                debe = abs(as.numeric(debe)),
                haber = abs(as.numeric(haber)),
@@ -332,8 +329,7 @@ server <- function(input, output, session) {
         
         filas_ajuste <- data.frame(
           clave = c("44090403", "559502"),
-          fecha = rep("15-01-2026", 2),
-
+          fecha = rep(format(input$f_reporte, "%d-%m-%Y"), 2),
           saldo_inicial = c("0.00", "0.00"),
           debe = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00"),
           haber = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""))
@@ -351,7 +347,7 @@ server <- function(input, output, session) {
 
         filas_ajuste <- data.frame(
           clave = c("44090302", "339502"),
-          fecha = rep("15-01-2026", 2),
+          fecha = rep(format(input$f_reporte, "%d-%m-%Y"), 2),
           saldo_inicial = c("0.00", "0.00"),
           debe = c("0.00", number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = "")),
           haber = c(number(ajuste, accuracy = 0.01, decimal.mark = ".", big.mark = ""), "0.00")
@@ -452,12 +448,12 @@ server <- function(input, output, session) {
   output$descargar_txt <- downloadHandler(
     filename = function() {
       # Nombre del archivo con la fecha actual
-      paste("datos-extraidos-", Sys.Date(), ".csv", sep = "")
+      paste("D", format(input$f_reporte, "%d%m%Y"), ".csv", sep = "")
     },
     content = function(file) {
       # Escribir el contenido en el archivo temporal 'file'
       # Usamos write_tsv o write_delim para formato TXT
-      write_delim(balance_filtrado(), file, delim = ";")
+      write_delim(balance_filtrado(), file, delim = ";", col_names = FALSE)
     }
   )
  
