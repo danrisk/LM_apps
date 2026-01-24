@@ -381,14 +381,64 @@ server <- function(input, output, session) {
     prima_bruta <- Contabilidad_consolidada |>
       filter(fec_emis >= as.Date("2026-01-01"),
              fec_emis <= as.Date("2026-01-15")) |> 
-      mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*"),
-             Comisiones = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
-      group_by(Ramo) |> 
-      summarise(`Prima Bruta` = sum(abs(saldo)),
-                Comisiones = sum(Comisiones, na.rm = TRUE)) |> 
-      drop_na(Ramo)
+      mutate(ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
+      group_by(ramo) |> 
+      summarise(`Prima Bruta` = sum(abs(saldo))) |> 
+      drop_na(ramo)
     
-   prima_bruta
+    
+    comisiones <- Contabilidad_consolidada |>
+      filter(fec_emis >= as.Date("2026-01-01"),
+             fec_emis <= as.Date("2026-01-15")) |> 
+      mutate(ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
+      filter(ramo != "Bancarios", 
+             ramo != "Sociedades de Corretaje",
+             ramo != "Corredores de Seguros") |>
+      group_by(ramo) |> 
+      summarise(Comisiones = sum(abs(saldo))) |> 
+      drop_na(ramo)
+    
+    prima_com <- full_join(prima_bruta, comisiones, by = "ramo")
+    
+    tabla_mapeo <- tribble(
+      ~ramo_original,              ~ramo_estandar,
+      "Acc Pers Colectivo",        "Accidentes Personales Colectivo",
+      "Acc Pers Colec",            "Accidentes Personales Colectivo",
+      "Acc Pers Individual",       "Accidentes Personales Individual",
+      "Automovil Colectivo o Flota", "Automóviles",
+      "Automovil Individual",        "Automóviles",
+      "Automóvil Individual",        "Automóviles",
+      "Vida Indiv - Renovación",   "Vida Individual",
+      "Vida Indiv Renovación",     "Vida Individual",
+      "RCV Individual",            "Responsabilidad Civil Vehículos",
+      "Resp. Civil General",       "Responsabilidad Civil General",
+      "Resp. Civil Empresarial",   "Responsabilidad Civil Empresarial",
+      "Funerarios Individual",     "Servicios Funerarios",
+      "Funerarios Colectivo",      "Servicios Funerarios"
+    )
+    
+    
+    homologar_ramos <- function(df_datos, diccionario) {
+      # Intentamos primero por coincidencia exacta
+      df_limpio <- df_datos %>%
+        left_join(diccionario, by = c("ramo" = "ramo_original")) %>%
+        mutate(ramo_final = coalesce(ramo_estandar, ramo)) # Si no hay match, deja el original
+      
+      return(df_limpio)
+    }
+    
+    prima_h <- homologar_ramos(prima_com, tabla_mapeo) |>
+      mutate(`Prima Bruta` = replace_na(`Prima Bruta`, 0),
+             Comisiones = replace_na(Comisiones, 0)) |>
+      select(ramo_final, `Prima Bruta`, Comisiones)
+    
+    
+    prima <- prima_h |>
+      group_by(ramo_final) |>
+      summarise(`Prima Bruta` = sum(`Prima Bruta`),
+                Comisiones = sum(Comisiones))
+    
+    prima
     
   })
   

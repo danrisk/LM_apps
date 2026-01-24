@@ -1,17 +1,14 @@
 library(shiny)
 library(DT)
 library(dplyr)
-library(RSQLite)
-library(DBI)
 library(bslib)
-library(DiagrammeR)
 library(shinyjs)
 library(openxlsx)
 library(readr)
 library(janitor)
 library(scales)
 library(tidyverse)
-library(odbc)
+
 
 # --- Configuración de Base de Datos y Almacenamiento ---
 dir_storage <- "archivos_pdf"
