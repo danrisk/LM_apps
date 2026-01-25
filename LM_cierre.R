@@ -54,6 +54,74 @@ traduccion_es <- list(
   emptyTable = "Ningún dato disponible en esta tabla"
 )
 
+
+homologar_ramos <- function(df_datos, diccionario) {
+  # Intentamos primero por coincidencia exacta
+  df_limpio <- df_datos %>%
+    left_join(diccionario, by = c("ramo" = "ramo_original")) 
+  # |>
+  #   mutate(ramo_final = coalesce(ramo_estandar, ramo)) # Si no hay match, deja el original
+  return(df_limpio)
+}
+
+
+tabla_mapeo <- tribble(
+  ~ramo_original,              ~ramo_estandar,
+  "Acc Pers Colectivo",        "Accidentes Personales Colectivo",
+  "Acc Pers Colec",            "Accidentes Personales Colectivo",
+  "ACCIDENTES PERSONALES COLECTIVOS", "Accidentes Personales Colectivo",
+  "Acc Pers Individual",       "Accidentes Personales Individual",
+  "ACCIDENTES PERSONALES",     "Accidentes Personales Individual",
+  "Automovil Colectivo o Flota", "Automóviles",
+  "Automovil Individual",        "Automóviles",
+  "Automóvil Individual",        "Automóviles",
+  "AUTOMOVIL",                   "Automóviles",
+  "AVIACION",                       "Aviación",
+  "AVIACIÓN",                       "Aviación",
+  "Aeronaves",                      "Aviación",
+  "INCENDIO",                       "Incendio",
+  "Incendio",                       "Incendio",
+  "NAVES",                          "Naves",
+  "Naves",                          "Naves",
+  "Vida Indiv - Renovación",   "Vida Individual",
+  "Vida Indiv Renovación",     "Vida Individual",
+  "VIDA INDIVIDUAL",           "Vida Individual",
+  "RCV Individual",            "Responsabilidad Civil Vehículos",
+  "Resp. Civil General",       "Responsabilidad Civil General",
+  "RESPONSABILIDAD CIVIL GENERAL", "Responsabilidad Civil General",
+  "Resp. Civil Empresarial",   "Responsabilidad Civil Empresarial",
+  "R.C. PROFESIONAL MÉDICOS Y ODONTOLÓGOS", "Responsabilidad Civil Empresarial",
+  "Resp. Civil Profesional", "Responsabilidad Civil Empresarial",
+  "RESPONSABILIDAD CIVIL EMPRESARIAL", "Responsabilidad Civil Empresarial",
+  "Resp. Civil Patronal", "Responsabilidad Civil Empresarial",
+  "RESPONSABILIDAD CIVIL PATRONAL", "Responsabilidad Civil Empresarial",
+  "Funerarios Individual",     "Servicios Funerarios",
+  "Funerarios Colectivo",      "Servicios Funerarios",
+  "GASTOS FUNERARIOS", "Servicios Funerarios",
+  "GASTOS FUNERARIOS COLECTIVO", "Servicios Funerarios",
+  "Funerarios Colectivo",  "Servicios Funerarios",
+  "Funerarios Individual", "Servicios Funerarios",
+  "PÓLIZA DE SEGURO MASIVO DE GASTOS FUNERARIO INDIVIDUAL", "Servicios Funerarios",
+  "COMBINADO FAMILIAR", "Combinado",
+  "COMBINADO RESIDENCIAL", "Combinado",
+  "COMBINADOS EMPRESARIAL", "Combinado",
+  "Combinados", "Combinado",
+  "RIESGOS ESPECIALES",   "Riesgo Diversos",
+  "Otros Riesgos Diversos", "Riesgo Diversos",
+  "FIANZAS", "Fianzas",
+  "FIANZA", "Fianzas",
+  "Fianzas", "Fianzas",
+  "TODO RIESGO INDUSTRIAL", "Todo Riesgo Industrial",
+  "Ramos Técnicos", "Todo Riesgo Industrial",
+  "TRANSPORTE TERRESTRE", "Transporte",
+  "Transporte",       "Transporte",
+  "SALUD", "Hospitalización Individual",
+  "Salud Colectivo", "Hospitalización Colectiva",
+  "Salud Individual", "Hospitalización Individual",
+  "SALUD COLECTIVO", "Hospitalización Colectiva"
+)
+
+
 dbExecute(con, "CREATE TABLE IF NOT EXISTS usuarios (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  user TEXT UNIQUE,
@@ -180,35 +248,26 @@ server <- function(input, output, session) {
           tags$img(src = "logo_color_LM.png", style = "height: 200px; width: auto;")
         ),
         
-        sidebarLayout(
-          sidebarPanel(
-            h4("Balance Preliminar"),
-            tabsetPanel(
-              tabPanel("Carga",
-                       br(),
-                       fileInput("file_input", "Seleccione xlsx", accept = c(".csv",".xlsx"), buttonLabel = "Buscar archivo...", placeholder = "Ningún archivo seleccionado"),
-                       uiOutput("status_ui"))
-            ),
-            hr(),
-            h4("Opciones"),
-            uiOutput("download_ui"),
-            br(),
-            uiOutput("delete_ui")
-          ),
+        # sidebarLayout(
+          # sidebarPanel(
+          #   h4("Balance Preliminar"),
+          #   tabsetPanel(
+          #     tabPanel("Carga",
+          #              br(),
+          #              fileInput("file_input", "Seleccione xlsx", accept = c(".csv",".xlsx"), buttonLabel = "Buscar archivo...", placeholder = "Ningún archivo seleccionado"),
+          #              uiOutput("status_ui"))
+          #   ),
+          #   hr(),
+          #   h4("Opciones"),
+          #   uiOutput("download_ui"),
+          #   br(),
+          #   uiOutput("delete_ui")
+          # ),
           
-          mainPanel(
+          # mainPanel(
             tabsetPanel(
-            #   tabPanel(
-            #   dateRangeInput("f_eval", "Introduzca periodo a evaluar:",
-            #             start = Sys.Date(),
-            #             end = Sys.Date(),
-            #             format = "dd-mm-yyyy",
-            #             language = "es")
-            # ),
               tabPanel("Primas/ Comisiones / Devoluciones", 
-                       DTOutput("primas_SYSIP"),
-                       br(),
-                       DTOutput("primas_PROFIT")
+                       DTOutput("primas"),
               ),
               tabPanel("Siniestros", 
                        DTOutput("siniestros")
@@ -240,9 +299,9 @@ server <- function(input, output, session) {
               tabPanel("Descarga archivo definitivo", 
                        downloadButton("descargar_txt", "Descargar Archivo .txt")
               )
-            )
-          )
-        ),
+            ),
+          # ),
+        # ),
         
         tags$footer(
           class = "footer-custom",
@@ -327,7 +386,7 @@ server <- function(input, output, session) {
              cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
              pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
       rename("Nº de Póliza" = cnpoliza,
-             Ramo = xdescripcion_l,
+             ramo = xdescripcion_l,
              "Fecha de Emision Recibo" = femision,
              "Fecha desde Póliza" = fdesde_pol,
              "Fecha Hasta Póliza" = fhasta_pol,
@@ -350,12 +409,23 @@ server <- function(input, output, session) {
              "Prima Cedida Facultativo" = mpfp,
              "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
              "Prima Retenida" = mpret,
-             "Prima Retenida Moneda Extranjera" = mpretext) %>% 
-      group_by(Ramo) %>% 
+             "Prima Retenida Moneda Extranjera" = mpretext) |>
+      mutate(ramo = str_trim(ramo)) |>
+      group_by(ramo) |> 
       summarise(`Prima Bruta` = sum(`Prima Bruta`),
                 `Monto de Comisión` = sum(`Monto de Comisión`))
     
-    Recibos_detalle
+    prima_tecnica_h <- homologar_ramos(Recibos_detalle, tabla_mapeo) |>
+      mutate(`Prima Bruta` = replace_na(`Prima Bruta`, 0),
+             `Monto de Comisión` = replace_na(`Monto de Comisión`, 0)) |>
+      select(Ramo = ramo_estandar, `Prima Bruta`, `Monto de Comisión`)
+    
+    prima_tecnica <- prima_tecnica_h |>
+      group_by(Ramo) |>
+      summarise(`Prima Bruta` = sum(`Prima Bruta`),
+                `Monto de Comisión` = sum(`Monto de Comisión`))
+    
+    prima_tecnica
     
   })
   
@@ -400,45 +470,44 @@ server <- function(input, output, session) {
     
     prima_com <- full_join(prima_bruta, comisiones, by = "ramo")
     
-    tabla_mapeo <- tribble(
-      ~ramo_original,              ~ramo_estandar,
-      "Acc Pers Colectivo",        "Accidentes Personales Colectivo",
-      "Acc Pers Colec",            "Accidentes Personales Colectivo",
-      "Acc Pers Individual",       "Accidentes Personales Individual",
-      "Automovil Colectivo o Flota", "Automóviles",
-      "Automovil Individual",        "Automóviles",
-      "Automóvil Individual",        "Automóviles",
-      "Vida Indiv - Renovación",   "Vida Individual",
-      "Vida Indiv Renovación",     "Vida Individual",
-      "RCV Individual",            "Responsabilidad Civil Vehículos",
-      "Resp. Civil General",       "Responsabilidad Civil General",
-      "Resp. Civil Empresarial",   "Responsabilidad Civil Empresarial",
-      "Funerarios Individual",     "Servicios Funerarios",
-      "Funerarios Colectivo",      "Servicios Funerarios"
-    )
-    
-    
-    homologar_ramos <- function(df_datos, diccionario) {
-      # Intentamos primero por coincidencia exacta
-      df_limpio <- df_datos %>%
-        left_join(diccionario, by = c("ramo" = "ramo_original")) %>%
-        mutate(ramo_final = coalesce(ramo_estandar, ramo)) # Si no hay match, deja el original
-      
-      return(df_limpio)
-    }
-    
     prima_h <- homologar_ramos(prima_com, tabla_mapeo) |>
       mutate(`Prima Bruta` = replace_na(`Prima Bruta`, 0),
              Comisiones = replace_na(Comisiones, 0)) |>
-      select(ramo_final, `Prima Bruta`, Comisiones)
+      filter(ramo_estandar != "Sociedades de Corretaje ") |>
+      select(Ramo = ramo_estandar, `Prima Bruta`, Comisiones)
     
     
-    prima <- prima_h |>
-      group_by(ramo_final) |>
+    prima_contable <- prima_h |>
+      group_by(Ramo) |>
       summarise(`Prima Bruta` = sum(`Prima Bruta`),
                 Comisiones = sum(Comisiones))
     
-    prima
+    prima_contable
+    
+  })
+  
+  
+  prima_DEFINITIVA <- reactive({
+    
+    Prima_definitiva <- full_join(primas_PROFIT(), primas_SYSIP(), by = "Ramo")
+    
+    Prima_definitiva <- Prima_definitiva |>
+      rename(
+        "Prima Bruta Contable"       = `Prima Bruta.x`,
+        "Monto de Comisión Contable" = Comisiones,
+        "Prima Bruta Tecnica"        = `Prima Bruta.y`,
+        "Monto de Comisión Tecnica"  = `Monto de Comisión` # <-- Se cerró la tilde correctamente
+      ) |>
+      mutate(
+        `Prima Bruta Contable`       = replace_na(`Prima Bruta Contable`, 0), # <-- Nombre corregido
+        `Monto de Comisión Contable` = replace_na(`Monto de Comisión Contable`, 0),
+        `Prima Bruta Tecnica`        = replace_na(`Prima Bruta Tecnica`, 0), # <-- Nombre corregido
+        `Monto de Comisión Tecnica`  = replace_na(`Monto de Comisión Tecnica`, 0),
+        `Diferencia Primas`          = `Prima Bruta Contable` - `Prima Bruta Tecnica`,
+        `Diferencia Comisiones`      = `Monto de Comisión Contable` - `Monto de Comisión Tecnica`
+      )
+    
+    Prima_definitiva
     
   })
   
@@ -560,16 +629,23 @@ server <- function(input, output, session) {
   })
   
   
-  output$primas_SYSIP <- renderDT({
+  output$primas <- renderDT({
     
    
     
-    datatable(primas_SYSIP(), rownames = FALSE, options = list(language =list(url = traduccion_es),
+    datatable(prima_DEFINITIVA(), rownames = FALSE, options = list(language =list(url = traduccion_es),
                                  dom = 't',
                                  ordering = FALSE,
                                  paging = FALSE)) |>
-      # formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
-      formatCurrency(columns = c('Prima Bruta', 'Monto de Comisión'), 
+      formatStyle(c('Diferencia Primas', 'Diferencia Comisiones'), 
+                  color = styleInterval(c(-0.01, 0.01), c("#721c24", "#2c3e50", "#155724")),
+                  backgroundColor = styleInterval(c(-0.01, 0.01), c("#ffcccc", "#ffffff", "#d4edda"))) |> 
+      formatCurrency(columns = c('Prima Bruta Contable',
+                                 'Monto de Comisión Contable', 
+                                 'Prima Bruta Tecnica', 
+                                 'Monto de Comisión Tecnica',
+                                 'Diferencia Primas',
+                                 'Diferencia Comisiones'), 
                      currency = "Bs. ", 
                      interval = 3, 
                      mark = ".", 
@@ -579,23 +655,7 @@ server <- function(input, output, session) {
     
   })
   
-  output$primas_PROFIT <- renderDT({
-    
-    
-    datatable(primas_PROFIT(), rownames = FALSE, options = list(language =list(url = traduccion_es),
-                                             dom = 't',
-                                             ordering = FALSE,
-                                             paging = FALSE)) |>
-      # formatStyle(c('Diferencia', 'Diferencia_EI'), color = styleInterval(0, c('red','green'))) |> 
-      formatCurrency(columns = c('Prima Bruta'), 
-                     currency = "Bs. ", 
-                     interval = 3, 
-                     mark = ".", 
-                     dec.mark = ",",
-                     digits = 2)
-    
-  })
-  
+ 
   output$siniestros <- renderDT({
     
     dataops_source()

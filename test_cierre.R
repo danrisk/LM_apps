@@ -1,3 +1,20 @@
+library(shiny)
+library(DT)
+library(dplyr)
+library(RSQLite)
+library(DBI)
+library(bslib)
+library(DiagrammeR)
+library(shinyjs)
+library(openxlsx)
+library(readr)
+library(janitor)
+library(scales)
+library(tidyverse)
+library(pointblank)
+
+
+
 
 PROFIT <- DBI::dbConnect(odbc::odbc(),
                          Driver   = "ODBC Driver 17 for SQL Server",
@@ -29,8 +46,8 @@ cuentas <- tbl(PROFIT, "SCCUENTA") |>
   collect()
 
 saldos <- tbl(PROFIT, "SCREN_CO") |> 
-  filter(fec_emis >= as.Date("2026-01-14"),
-         fec_emis <= as.Date("2026-01-20")) |> 
+  filter(fec_emis >= as.Date("2026-01-01"),
+         fec_emis <= as.Date("2026-01-15")) |> 
   collect()
 
 
@@ -46,6 +63,12 @@ Contabilidad_final <- Contabilidad |>
   mutate(saldo_final = monto_d - monto_h) |>
   select(co_cue, saldo_final)
 
+Contabilidad_Consolidada <- Contabilidad |> 
+  filter(fec_emis >= as.Date("2026-01-01"),
+         fec_emis <= as.Date("2026-01-15")) |>
+  mutate(saldo = monto_d - monto_h) |>
+  select(co_cue, des_cue, fec_emis, descri, monto_d, monto_h, saldo)
+
 Contabilidad_preliminar <- left_join(Contabilidad_inicial, Contabilidad_final, by = "co_cue", relationship = "many-to-many")
 
 Contabilidad_trabajada <- Contabilidad_preliminar |>
@@ -54,7 +77,7 @@ Contabilidad_trabajada <- Contabilidad_preliminar |>
             saldo_final = sum(saldo_final))
 
 
-prima_bruta <- Contabilidad_consolidada |>
+prima_bruta <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
          fec_emis <= as.Date("2026-01-15")) |> 
   mutate(ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
@@ -63,7 +86,7 @@ prima_bruta <- Contabilidad_consolidada |>
   drop_na(ramo)
 
 
-comisiones <- Contabilidad_consolidada |>
+comisiones <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
          fec_emis <= as.Date("2026-01-15")) |> 
   mutate(ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
@@ -86,33 +109,71 @@ tabla_mapeo <- tribble(
   "Automovil Colectivo o Flota", "Automóviles",
   "Automovil Individual",        "Automóviles",
   "Automóvil Individual",        "Automóviles",
+  "AUTOMOVIL",                   "Automóviles",
+  "AVIACION",                       "Aviación",
+  "AVIACIÓN",                       "Aviación",
+  "Aeronaves",                      "Aviación",
+  "INCENDIO",                       "Incendio",
+  "Incendio",                       "Incendio",
+  "NAVES",                          "Naves",
+  "Naves",                          "Naves",
   "Vida Indiv - Renovación",   "Vida Individual",
   "Vida Indiv Renovación",     "Vida Individual",
+  "VIDA INDIVIDUAL",           "Vida Individual",
   "RCV Individual",            "Responsabilidad Civil Vehículos",
   "Resp. Civil General",       "Responsabilidad Civil General",
+  "RESPONSABILIDAD CIVIL GENERAL", "Responsabilidad Civil General",
   "Resp. Civil Empresarial",   "Responsabilidad Civil Empresarial",
+  "R.C. PROFESIONAL MÉDICOS Y ODONTOLÓGOS", "Responsabilidad Civil Empresarial",
+  "Resp. Civil Profesional", "Responsabilidad Civil Empresarial",
+  "RESPONSABILIDAD CIVIL EMPRESARIAL", "Responsabilidad Civil Empresarial",
+  "Resp. Civil Patronal", "Responsabilidad Civil Empresarial",
+  "RESPONSABILIDAD CIVIL PATRONAL", "Responsabilidad Civil Empresarial",
   "Funerarios Individual",     "Servicios Funerarios",
-  "Funerarios Colectivo",      "Servicios Funerarios"
+  "Funerarios Colectivo",      "Servicios Funerarios",
+  "GASTOS FUNERARIOS", "Servicios Funerarios",
+  "GASTOS FUNERARIOS COLECTIVO", "Servicios Funerarios",
+  "Funerarios Colectivo",  "Servicios Funerarios",
+  "Funerarios Individual", "Servicios Funerarios",
+  "PÓLIZA DE SEGURO MASIVO DE GASTOS FUNERARIO INDIVIDUAL", "Servicios Funerarios",
+  "COMBINADO FAMILIAR", "Combinado",
+  "COMBINADO RESIDENCIAL", "Combinado",
+  "COMBINADOS EMPRESARIAL", "Combinado",
+  "Combinados", "Combinado",
+  "RIESGOS ESPECIALES",   "Riesgo Diversos",
+  "Otros Riesgos Diversos", "Riesgo Diversos",
+  "FIANZAS", "Fianzas",
+  "FIANZA", "Fianzas",
+  "Fianzas", "Fianzas",
+  "TODO RIESGO INDUSTRIAL", "Todo Riesgo Industrial",
+  "Ramos Técnicos", "Todo Riesgo Industrial",
+  "TRANSPORTE TERRESTRE", "Transporte",
+  "Transporte",       "Transporte",
+  "SALUD", "Hospitalización Individual",
+  "Salud Colectivo", "Hospitalización Colectiva",
+  "Salud Individual", "Hospitalización Individual",
+  "SALUD COLECTIVO", "Hospitalización Colectiva"
 )
 
 
 homologar_ramos <- function(df_datos, diccionario) {
   # Intentamos primero por coincidencia exacta
   df_limpio <- df_datos %>%
-    left_join(diccionario, by = c("ramo" = "ramo_original")) %>%
-    mutate(ramo_final = coalesce(ramo_estandar, ramo)) # Si no hay match, deja el original
-  
+    left_join(diccionario, by = c("ramo" = "ramo_original")) 
+  # |>
+  #   mutate(ramo_final = coalesce(ramo_estandar, ramo)) # Si no hay match, deja el original
   return(df_limpio)
 }
 
 prima_h <- homologar_ramos(prima_com, tabla_mapeo) |>
   mutate(`Prima Bruta` = replace_na(`Prima Bruta`, 0),
          Comisiones = replace_na(Comisiones, 0)) |>
-select(ramo_final, `Prima Bruta`, Comisiones)
+  filter(ramo_estandar != "Sociedades de Corretaje ") |>
+select(Ramo = ramo_estandar, `Prima Bruta`, Comisiones)
 
 
-prima <- prima_h |>
-  group_by(ramo_final) |>
+prima_contable <- prima_h |>
+  group_by(Ramo) |>
   summarise(`Prima Bruta` = sum(`Prima Bruta`),
             Comisiones = sum(Comisiones))
 
@@ -136,7 +197,7 @@ Recibos_detalle <- Recibos_ramos |>
          cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
          pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
   rename("Nº de Póliza" = cnpoliza,
-         Ramo = xdescripcion_l,
+         ramo = xdescripcion_l,
          "Fecha de Emision Recibo" = femision,
          "Fecha desde Póliza" = fdesde_pol,
          "Fecha Hasta Póliza" = fhasta_pol,
@@ -159,9 +220,38 @@ Recibos_detalle <- Recibos_ramos |>
          "Prima Cedida Facultativo" = mpfp,
          "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
          "Prima Retenida" = mpret,
-         "Prima Retenida Moneda Extranjera" = mpretext) %>% 
-  group_by(Ramo) %>% 
+         "Prima Retenida Moneda Extranjera" = mpretext) |>
+  mutate(ramo = str_trim(ramo)) |>
+  group_by(ramo) |> 
   summarise(`Prima Bruta` = sum(`Prima Bruta`),
             `Monto de Comisión` = sum(`Monto de Comisión`))
 
+prima_tecnica_h <- homologar_ramos(Recibos_detalle, tabla_mapeo) |>
+  mutate(`Prima Bruta` = replace_na(`Prima Bruta`, 0),
+         `Monto de Comisión` = replace_na(`Monto de Comisión`, 0)) |>
+  select(Ramo = ramo_estandar, `Prima Bruta`, `Monto de Comisión`)
+
+prima_tecnica <- prima_tecnica_h |>
+  group_by(Ramo) |>
+  summarise(`Prima Bruta` = sum(`Prima Bruta`),
+            `Monto de Comisión` = sum(`Monto de Comisión`))
+
+
+Prima_definitiva <- full_join(prima_contable, prima_tecnica, by = "Ramo")
+
+Prima_definitiva <- Prima_definitiva |>
+  rename(
+    "Prima Bruta Contable"       = `Prima Bruta.x`,
+    "Monto de Comisión Contable" = Comisiones,
+    "Prima Bruta Tecnica"        = `Prima Bruta.y`,
+    "Monto de Comisión Tecnica"  = `Monto de Comisión` # <-- Se cerró la tilde correctamente
+  ) |>
+  mutate(
+    `Prima Bruta Contable`       = replace_na(`Prima Bruta Contable`, 0), # <-- Nombre corregido
+    `Monto de Comisión Contable` = replace_na(`Monto de Comisión Contable`, 0),
+    `Prima Bruta Tecnica`        = replace_na(`Prima Bruta Tecnica`, 0), # <-- Nombre corregido
+    `Monto de Comisión Tecnica`  = replace_na(`Monto de Comisión Tecnica`, 0)
+  )
+  
+  
 
