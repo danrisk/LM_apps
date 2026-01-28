@@ -120,6 +120,8 @@ tabla_mapeo <- tribble(
   "Vida Indiv - Renovación",   "Vida Individual",
   "Vida Indiv Renovación",     "Vida Individual",
   "VIDA INDIVIDUAL",           "Vida Individual",
+  "Vida Colectivo",     "Vida Colectivo",
+  "VIDA COLECTIVO",     "Vida Colectivo",
   "RCV Individual",            "Responsabilidad Civil Vehículos",
   "Resp. Civil General",       "Responsabilidad Civil General",
   "RESPONSABILIDAD CIVIL GENERAL", "Responsabilidad Civil General",

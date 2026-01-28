@@ -84,6 +84,8 @@ tabla_mapeo <- tribble(
   "NAVES",                          "Naves",
   "Naves",                          "Naves",
   "Vida Indiv - Renovación",   "Vida Individual",
+  "Vida Colectivo",     "Vida Colectivo",
+  "VIDA COLECTIVO",     "Vida Colectivo",
   "Vida Indiv Renovación",     "Vida Individual",
   "VIDA INDIVIDUAL",           "Vida Individual",
   "RCV Individual",            "Responsabilidad Civil Vehículos",
@@ -371,7 +373,7 @@ server <- function(input, output, session) {
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
       filter(
         fcobro >= "2026-01-01",
-        fcobro <= "2026-01-15",
+        fcobro <= "2026-01-25",
         iestadorec == "C") |> 
       collect()
     
@@ -437,7 +439,7 @@ server <- function(input, output, session) {
     
     saldos <- tbl(PROFIT, "SCREN_CO") |> 
       filter(fec_emis >= as.Date("2026-01-01"),
-             fec_emis <= as.Date("2026-01-15")) |> 
+             fec_emis <= as.Date("2026-01-25")) |> 
       collect()
     
     
@@ -450,7 +452,7 @@ server <- function(input, output, session) {
     
     prima_bruta <- Contabilidad_consolidada |>
       filter(fec_emis >= as.Date("2026-01-01"),
-             fec_emis <= as.Date("2026-01-15")) |> 
+             fec_emis <= as.Date("2026-01-25")) |> 
       mutate(ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
       group_by(ramo) |> 
       summarise(`Prima Bruta` = sum(abs(saldo))) |> 
@@ -459,7 +461,7 @@ server <- function(input, output, session) {
     
     comisiones <- Contabilidad_consolidada |>
       filter(fec_emis >= as.Date("2026-01-01"),
-             fec_emis <= as.Date("2026-01-15")) |> 
+             fec_emis <= as.Date("2026-01-25")) |> 
       mutate(ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
       filter(ramo != "Bancarios", 
              ramo != "Sociedades de Corretaje",
@@ -517,7 +519,7 @@ server <- function(input, output, session) {
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
     filter(
       fcobro >= as.Date("2026-01-01"),
-      fcobro <= as.Date("2026-01-15"),
+      fcobro <= as.Date("2026-01-25"),
       iestadorec == "C") |> 
     collect()
   
@@ -556,7 +558,8 @@ server <- function(input, output, session) {
            "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
            "Prima Retenida" = mpret,
            "Prima Retenida Moneda Extranjera" = mpretext)
-  
+ 
+   ########## transformar y unificar oon la prima profit
   
   RRC <- Recibos_detalle |> 
     mutate(`Fecha desde Recibo`= as.Date(`Fecha desde Recibo`),
@@ -565,7 +568,7 @@ server <- function(input, output, session) {
            ANIO = year(`Fecha de Cobro`),
            Mes = month(`Fecha de Cobro`, label = TRUE),
            prima_neta = as.numeric(`Prima Bruta`) - as.numeric(`Monto de Comisión`),
-           fecha_evaluacion = as.Date("2026-01-15"),
+           fecha_evaluacion = as.Date("2026-01-25"),
            dias_por_transcurrir = case_when(
              as.numeric(`Fecha hasta Recibo`) <= fecha_evaluacion ~ 0,
              as.numeric(`Fecha desde Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`),
@@ -633,7 +636,7 @@ server <- function(input, output, session) {
     
    
     
-    datatable(prima_DEFINITIVA(), rownames = FALSE, options = list(language =list(url = traduccion_es),
+    datatable(prima_DEFINITIVA(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
                                  dom = 't',
                                  ordering = FALSE,
                                  paging = FALSE)) |>
@@ -670,7 +673,7 @@ server <- function(input, output, session) {
 
   output$rrc <- renderDT({
     
-    datatable(rrc(), rownames = FALSE, options = list(language =list(url = traduccion_es),
+    datatable(rrc(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
                                               dom = 't',
                                               ordering = FALSE,
                                               paging = FALSE)) |>
