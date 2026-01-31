@@ -1,5 +1,5 @@
 library(shiny)
-library(DT)
+library(reactable)
 library(dplyr)
 library(RSQLite)
 library(DBI)
@@ -51,6 +51,21 @@ dbExecute(con, "CREATE TABLE IF NOT EXISTS reaseguros (
                  Fecha_limite TEXT,
                  Contrato_Real TEXT,
                  Estado TEXT DEFAULT 'Cargado')")
+
+
+# --- Helpers de UI ---
+status_colors <- c(
+  'Cargado' = '#d1ecf1',
+  'En Elaboración' = '#00FFF7',
+  'Aprobado Área Funcional' = '#ADFF2F',
+  'Aprobado Gerencia Actuarial' = '#ff6675',
+  'Aprobado Junta Directiva' = '#b23f44',
+  'Remitido a la SUDEASEG' = '#f1c40f',
+  'En Revisión en la SUDEASEG' = '#ffa500',
+  'Devuelto Corrección / Modificación' = '#dddddd',
+  'Devuelto Negado' = '#777777',
+  'Aprobado' = '#2ecc71'
+)
 
 # Insertar usuario inicial si la tabla está vacía (Usuario: admin / Pass: 1234)
 users_count <- dbGetQuery(con, "SELECT COUNT(*) as n FROM usuarios")$n
@@ -187,6 +202,8 @@ server <- function(input, output, session) {
   # Variable reactiva para controlar el acceso
   logged_in <- reactiveVal(FALSE)
   user_data <- reactiveVal(NULL)
+  selected_row <- reactiveVal(NULL)
+  
   
   # --- UI DE LOGIN ---
   login_ui <- div(class = "login-bg",
@@ -299,30 +316,15 @@ server <- function(input, output, session) {
           mainPanel(
             tabsetPanel(
               tabPanel("Seguimiento Documentación de Productos", 
-                       DTOutput("tabla_docs")),
-              tabPanel("Contratos de Reaseguro Vigentes", 
-                       DTOutput("tabla_re")),
+                       reactableOutput("tabla_docs")),
               tabPanel("Mapa de Ruta", 
                        br(),
                        div(class = "diagram-box",
                            h4("Progreso del Documento Seleccionado", align="center"),
-                           DiagrammeROutput("interact_diagram", height = "400px"),
+                           DiagrammeROutput("interact_diagram", height = "1000px"),
                            uiOutput("current_step_text")
                        ),
-                       br(),
-                       wellPanel(
-                         h5("Guía de colores:"),
-                         tags$span(style="color:#3498db;", "● Azul:"), " Cargado | ",
-                         tags$span(style="color:#00FFF7;", "● Azul Turquesa:"), " En Elaboración | ",
-                         tags$span(style="color:#ADFF2F;", "● Verde Manzana:"), " Aprobado Área Funcional | ",
-                         tags$span(style="color:#ff6675;", "● Roja Coral:"), " Aprobado Gerencia Actuarial | ",
-                         tags$span(style="color:#b23f44;", "● Rojo Oscuro:"), " Aprobado Junta Directiva | ",
-                         tags$span(style="color:#f1c40f;", "● Amarillo:"), " Remitido a la SUDEASEG | ",
-                         tags$span(style="color:#ffa500;", "● Naranja:"), " En Revisión en la SUDEASEG | ",
-                         tags$span(style="color:#dddddd;", "● Gris Claro:"), " Devuelto Corrección / Modificación | ",
-                         tags$span(style="color:#777777;", "● Gris Oscuro:"), " Devuelto Negado | ",
-                         tags$span(style="color:#2ecc71;", "● Verde:"), " Aprobado "
-                       )
+                      
               ),
               tabPanel("Visor de Documentos", 
                        uiOutput("pdf_viewer"))
@@ -371,6 +373,13 @@ server <- function(input, output, session) {
     return(res)
   }
   
+  # Capturar fila seleccionada en reactable
+  observe({
+    selected <- getReactableState("tabla_docs", "selected")
+    selected_row(selected)
+  })
+  
+  
   # Valor reactivo para refrescar la UI
   trigger_update <- reactiveVal(0)
   
@@ -411,8 +420,9 @@ server <- function(input, output, session) {
   
   # Eliminar Registro
   observeEvent(input$delete_btn, {
-    req(input$tabla_docs_rows_selected)
-    fila <- datos_db()[input$tabla_docs_rows_selected, ]
+    req(selected_row())
+    df <- datos_db()
+    fila <-df[selected_row(), ]
     
     # Eliminar archivo físico
     file.remove(file.path(dir_storage, fila$Archivo_Real))
@@ -427,28 +437,27 @@ server <- function(input, output, session) {
   })
   
   # Renderizar Tabla
-  output$tabla_docs <- renderDT({
-    datatable(datos_db(), selection = 'single', options = list(pageLength = 10,
-                                                               language = list(
-                                                                 url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json'
-                                                               ))) %>%
-      formatStyle('Estado',
-                  backgroundColor = styleEqual(
-                    c('Cargado', 'En Elaboración', 'Aprobado Área Funcional', 'Aprobado Gerencia Actuarial', 'Aprobado Junta Directiva', 'Remitido a la SUDEASEG', 'En Revisión en la SUDEASEG', 'Devuelto Corrección / Modificación', 'Devuelto Negado', 'Aprobado'),
-                    c('#d1ecf1', '#00FFF7', '#ADFF2F', '#ff6675', '#b23f44', '#f1c40f', '#ffa500', '#dddddd', '#777777', '#2ecc71')
-                  ))
-  })
-  
-  output$tabla_re <- renderDT({
-    datatable(datos_db(), selection = 'single', options = list(pageLength = 10,
-                                                               language = list(
-                                                                 url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json'
-                                                               ))) %>%
-      formatStyle('Estado',
-                  backgroundColor = styleEqual(
-                    c('Cargado', 'En Elaboración', 'Aprobado Área Funcional', 'Aprobado Gerencia Actuarial', 'Aprobado Junta Directiva', 'Remitido a la SUDEASEG', 'En Revisión en la SUDEASEG', 'Devuelto Corrección / Modificación', 'Devuelto Negado', 'Aprobado'),
-                    c('#d1ecf1', '#00FFF7', '#ADFF2F', '#ff6675', '#b23f44', '#f1c40f', '#ffa500', '#dddddd', '#777777', '#2ecc71')
-                  ))
+  output$tabla_docs <- renderReactable({
+    reactable(datos_db(), selection = 'single', 
+              onClick = "select",
+              defaultColDef = colDef(style = list(whiteSpace = "normal"),
+                                     width = 180,
+                                     minWidth = 100),
+              searchable = TRUE,
+              bordered = TRUE,
+              highlight = TRUE,
+              language = reactableLang(searchPlaceholder = "Buscar documento...", noData = "No hay registros"),
+              columns = list(
+                id = colDef(show = FALSE),
+                Archivo_Real = colDef(show = FALSE),
+                Estado = colDef(
+                  cell = function(estado_actual) {
+                    color <- status_colors[estado_actual]
+                    span(class = "status-badge", style = list(background = color), estado_actual)
+                  }
+                )
+              )
+    )
   })
   
   
@@ -457,37 +466,40 @@ server <- function(input, output, session) {
     # Estado por defecto si no hay selección
     estado_actual <- "Ninguno"
     
-    if (!is.null(input$tabla_docs_rows_selected)) {
-      fila <- datos_db()[input$tabla_docs_rows_selected, ]
+    if (!is.null(selected_row())) {
+      df <- datos_db()
+      fila <- df[selected_row(), ]
       estado_actual <- fila$Estado
     }
     
     # Definimos los estilos según el estado seleccionado
-    style_A <- if(estado_actual == "Cargado") "fill:#d1ecf1,stroke:#2980b9,stroke-width:4px" else "fill:#d1ecf1"
-    style_B <- if(estado_actual == "En Elaboración") "fill:#162a7f,stroke:#f39c12,stroke-width:4px" else "fill:#00FFF7"
-    style_C <- if(estado_actual == "Aprobado Área Funcional") "fill:#091133,stroke:#27ae60,stroke-width:4px" else "fill:#ADFF2F"
-    style_D <- if(estado_actual == "Aprobado Gerencia Actuarial") "fill:#ff6675,stroke:#c0392b,stroke-width:4px" else "fill:#ff6675"
-    style_E <- if(estado_actual == "Aprobado Junta Directiva") "fill:#b23f44,stroke:#2980b9,stroke-width:4px" else "fill:#b23f44"
-    style_F <- if(estado_actual == "Remitido a la SUDEASEG") "fill:#f1c40f,stroke:#f39c12,stroke-width:4px" else "fill:#f1c40f"
-    style_G <- if(estado_actual == "En Revisión en la SUDEASEG") "fill:#ffa500,stroke:#27ae60,stroke-width:4px" else "fill:#ffa500"
-    style_H <- if(estado_actual == "Devuelto Corrección / Modificación") "fill:#dddddd,stroke:#c0392b,stroke-width:4px" else "fill:#dddddd"
-    style_I <- if(estado_actual == "Devuelto Negado") "fill:#777777,stroke:#27ae60,stroke-width:4px" else "fill:#777777"
-    style_J <- if(estado_actual == "Aprobado") "fill:#2ecc71,stroke:#c0392b,stroke-width:4px" else "fill:#2ecc71"
+    style_A <- if(estado_actual == "Cargado") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_B <- if(estado_actual == "En Elaboración") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_C <- if(estado_actual == "Aprobado Área Funcional") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_D <- if(estado_actual == "Aprobado Gerencia Actuarial") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_E <- if(estado_actual == "Aprobado Junta Directiva") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_F <- if(estado_actual == "Remitido a la SUDEASEG") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_G <- if(estado_actual == "En Revisión en la SUDEASEG") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_H <- if(estado_actual == "Devuelto Corrección / Modificación") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_I <- if(estado_actual == "Devuelto Negado") "fill:#fff3cd, stroke:#ffc107, stroke-width:4px, color:#856404" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
+    style_J <- if(estado_actual == "Aprobado") "fill:#10b981, stroke:#10b981, stroke-width:4px, color:#ffffff" else "fill:#d1ecf1, stroke:#2980b9, stroke-width:1px"
     
     mermaid(paste0("
-    graph LR
-      A(fa:fa-file-upload Cargado) --> B{fa:fa-search En Elaboración}
-      B --> C(fa:fa-check-circle Aprobado Área Funcional)
-      C --> D(fa:fa-check-circle Aprobado Gerencia Actuarial)
-      D --> E(fa:fa-check-circle Aprobado Junta Directiva)
-      E --> F(fa:fa-check-circle Remitido a la SUDEASEG)
-      F --> G(fa:fa-check-circle En Revisión en la SUDEASEG)
-      G --> H(fa:fa-check-circle Devuelto Corrección / Modificación)
+    graph TD
+      A(Cargado) --> B{En Elaboración}
+      B --> C(Aprobado Área Funcional)
+      C --> D(Aprobado Gerencia Actuarial)
+      D --> E(Aprobado Junta Directiva)
+      E --> F(Remitido a la SUDEASEG)
+      F --> G(En Revisión en la SUDEASEG)
+      G --> H(Devuelto Corrección / Modificación)
       H -.-> G
-      G --> I(fa:fa-check-circle Devuelto Negado)
+      G --> I(Devuelto Negado)
       I -.-> B
-      G --> J(fa:fa-check-circle Aprobado)
+      G --> J{Aprobado}
       
+      
+
       style A ", style_A, "
       style B ", style_B, "
       style C ", style_C, "
@@ -499,20 +511,33 @@ server <- function(input, output, session) {
       style I ", style_I, "
       style J ", style_J, "
     "))
+    
+     # style_active <- "fill:#ffe5d9, stroke:#ff5722, stroke-width:5px"
+    # mermaid(paste0("
+    # graph LR
+    #   A(Cargado) --> B(En Elaboración)
+    #   B --> C(Aprobado Interno)
+    #   C --> D(En SUDEASEG)
+    #   D --> E(Aprobado Final)
+    #   
+    #   style ", if(estado_actual == 'Cargado') "A" else if(estado_actual == 'Aprobado') "E" else "B", " ", style_active
+    # ))
   })
   
   output$current_step_text <- renderUI({
-    if (is.null(input$tabla_docs_rows_selected)) {
+    if (is.null(selected_row())) {
       div(class="status-info", "Seleccione un documento en el historial para ver su progreso.")
     } else {
-      fila <- datos_db()[input$tabla_docs_rows_selected, ]
+      df <- datos_db()
+      fila <- df[selected_row(), ]
       div(class="status-info", paste("Documento:", fila$Nombre, "| Estado actual:", fila$Estado))
     }
   })
   
   output$status_ui <- renderUI({
-    req(input$tabla_docs_rows_selected)
-    fila <- datos_db()[input$tabla_docs_rows_selected, ]
+    req(selected_row())
+    df <- datos_db()
+    fila <- df[selected_row(), ]
     wellPanel(
       h5("Cambiar Estado"),
       selectInput("new_status", "Nuevo estado para el archivo:", 
@@ -523,7 +548,8 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$update_status_btn, {
-    fila <- datos_db()[input$tabla_docs_rows_selected, ]
+    df <- datos_db()
+    fila <- df[selected_row(), ]
     con <- dbConnect(SQLite(), db_path)
     dbExecute(con, "UPDATE documentos SET Estado = ? WHERE id = ?", params = list(input$new_status, fila$id))
     dbDisconnect(con)
@@ -533,8 +559,9 @@ server <- function(input, output, session) {
   
   # Visor
   output$pdf_viewer <- renderUI({
-    req(input$tabla_docs_rows_selected)
-    fila <- datos_db()[input$tabla_docs_rows_selected, ]
+    req(selected_row())
+    df <- datos_db()
+    fila <- df[selected_row(), ]
     addResourcePath("pdf_dir", dir_storage)
     tags$iframe(style = "height:700px; width:100%; border:none;", 
                 src = paste0("pdf_dir/", fila$Archivo_Real))
@@ -542,22 +569,24 @@ server <- function(input, output, session) {
   
   # Botones Dinámicos
   output$download_ui <- renderUI({
-    req(input$tabla_docs_rows_selected)
+    req(selected_row())
     downloadButton("download_file", "Descargar PDF", class = "btn-success")
   })
   
   output$delete_ui <- renderUI({
-    req(input$tabla_docs_rows_selected)
+    req(selected_row())
     actionButton("delete_btn", "Eliminar Registro", class = "btn-danger", icon = icon("trash"))
   })
   
   output$download_file <- downloadHandler(
     filename = function() {
-      fila <- datos_db()[input$tabla_docs_rows_selected, ]
+      df <- datos_db()
+      fila <- df[selected_row(), ]
       fila$Archivo_Real
     },
     content = function(file) {
-      fila <- datos_db()[input$tabla_docs_rows_selected, ]
+      df <- datos_db()
+      fila <- df[selected_row(), ]
       file.copy(file.path(dir_storage, fila$Archivo_Real), file)
     }
   )

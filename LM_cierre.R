@@ -3,6 +3,7 @@ library(DT)
 library(dplyr)
 library(RSQLite)
 library(DBI)
+library(odbc)
 library(bslib)
 library(DiagrammeR)
 library(shinyjs)
@@ -70,7 +71,9 @@ tabla_mapeo <- tribble(
   "Acc Pers Colectivo",        "Accidentes Personales Colectivo",
   "Acc Pers Colec",            "Accidentes Personales Colectivo",
   "ACCIDENTES PERSONALES COLECTIVOS", "Accidentes Personales Colectivo",
+  "MICROSEGUROS COMBINADO DE PERSONAS 4IN1", "Accidentes Personales Colectivo",
   "Acc Pers Individual",       "Accidentes Personales Individual",
+  "MICROSEGUROS DE ACCIDENTES PERSONALES",  "Accidentes Personales Individual",
   "ACCIDENTES PERSONALES",     "Accidentes Personales Individual",
   "Automovil Colectivo o Flota", "Automóviles",
   "Automovil Individual",        "Automóviles",
@@ -84,10 +87,10 @@ tabla_mapeo <- tribble(
   "NAVES",                          "Naves",
   "Naves",                          "Naves",
   "Vida Indiv - Renovación",   "Vida Individual",
-  "Vida Colectivo",     "Vida Colectivo",
-  "VIDA COLECTIVO",     "Vida Colectivo",
   "Vida Indiv Renovación",     "Vida Individual",
   "VIDA INDIVIDUAL",           "Vida Individual",
+  "Vida Colectivo",     "Vida Colectivo",
+  "VIDA COLECTIVO",     "Vida Colectivo",
   "RCV Individual",            "Responsabilidad Civil Vehículos",
   "Resp. Civil General",       "Responsabilidad Civil General",
   "RESPONSABILIDAD CIVIL GENERAL", "Responsabilidad Civil General",
@@ -120,8 +123,13 @@ tabla_mapeo <- tribble(
   "SALUD", "Hospitalización Individual",
   "Salud Colectivo", "Hospitalización Colectiva",
   "Salud Individual", "Hospitalización Individual",
-  "SALUD COLECTIVO", "Hospitalización Colectiva"
+  "SALUD COLECTIVO", "Hospitalización Colectiva",
+  "SEGUROS DE CRÉDITOS", "Seguros de Crédito"
 )
+
+# -------------------------------------------------------------------------
+
+
 
 
 dbExecute(con, "CREATE TABLE IF NOT EXISTS usuarios (

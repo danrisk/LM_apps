@@ -30,7 +30,7 @@ SYSIP <- DBI::dbConnect(odbc::odbc(),
                         Server   = "172.30.149.67",
                         Database = "Sis2000",
                         UID      = "valentin",
-                        PWD      = "[E2ST}=r",
+                        PWD      = "4GnZAwfSvxMxrkID",
                         Port     = 1433)
 
 SYSIP <- DBI::dbConnect(odbc::odbc(),
@@ -42,30 +42,41 @@ SYSIP <- DBI::dbConnect(odbc::odbc(),
                         Port     = 1433)
 
 
+
+
+cuentas <- tbl(SYSIP, "CBREPORTE_PAGO") |>
+  # filter(fingreso == as.Date("2026-01-10")) |>
+  collect()
+
+
+cuentas1 <- tbl(SYSIP, "CBDOCCOB_M") |>
+  # filter(fingreso == as.Date("2026-01-10")) |>
+  collect()
+
 cuentas <- tbl(PROFIT, "SCCUENTA") |> 
   collect()
 
 saldos <- tbl(PROFIT, "SCREN_CO") |> 
   filter(fec_emis >= as.Date("2026-01-01"),
-         fec_emis <= as.Date("2026-01-15")) |> 
+         fec_emis <= as.Date("2026-01-25")) |> 
   collect()
 
 
 Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
 
 Contabilidad_inicial <- Contabilidad |> 
-  filter(fec_emis == as.Date("2026-01-15")) |>
+  filter(fec_emis == as.Date("2026-01-25")) |>
   mutate(saldo_inicial = monto_d - monto_h) |>
   select(co_cue, des_cue, fec_emis, descri, monto_d, monto_h, saldo_inicial)
 
 Contabilidad_final <- Contabilidad |> 
-  filter(fec_emis == as.Date("2026-01-16")) |>
+  filter(fec_emis == as.Date("2026-01-25")) |>
   mutate(saldo_final = monto_d - monto_h) |>
   select(co_cue, saldo_final)
 
 Contabilidad_Consolidada <- Contabilidad |> 
   filter(fec_emis >= as.Date("2026-01-01"),
-         fec_emis <= as.Date("2026-01-15")) |>
+         fec_emis <= as.Date("2026-01-25")) |>
   mutate(saldo = monto_d - monto_h) |>
   select(co_cue, des_cue, fec_emis, descri, monto_d, monto_h, saldo)
 
@@ -79,7 +90,7 @@ Contabilidad_trabajada <- Contabilidad_preliminar |>
 
 prima_bruta <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
-         fec_emis <= as.Date("2026-01-15")) |> 
+         fec_emis <= as.Date("2026-01-25")) |> 
   mutate(ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
   group_by(ramo) |> 
   summarise(`Prima Bruta` = sum(abs(saldo))) |> 
@@ -88,7 +99,7 @@ prima_bruta <- Contabilidad_Consolidada |>
 
 comisiones <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
-         fec_emis <= as.Date("2026-01-15")) |> 
+         fec_emis <= as.Date("2026-01-25")) |> 
   mutate(ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
   filter(ramo != "Bancarios", 
          ramo != "Sociedades de Corretaje",
@@ -104,7 +115,9 @@ tabla_mapeo <- tribble(
   "Acc Pers Colectivo",        "Accidentes Personales Colectivo",
   "Acc Pers Colec",            "Accidentes Personales Colectivo",
   "ACCIDENTES PERSONALES COLECTIVOS", "Accidentes Personales Colectivo",
+  "MICROSEGUROS COMBINADO DE PERSONAS 4IN1", "Accidentes Personales Colectivo",
   "Acc Pers Individual",       "Accidentes Personales Individual",
+  "MICROSEGUROS DE ACCIDENTES PERSONALES",  "Accidentes Personales Individual",
   "ACCIDENTES PERSONALES",     "Accidentes Personales Individual",
   "Automovil Colectivo o Flota", "Automóviles",
   "Automovil Individual",        "Automóviles",
@@ -154,7 +167,8 @@ tabla_mapeo <- tribble(
   "SALUD", "Hospitalización Individual",
   "Salud Colectivo", "Hospitalización Colectiva",
   "Salud Individual", "Hospitalización Individual",
-  "SALUD COLECTIVO", "Hospitalización Colectiva"
+  "SALUD COLECTIVO", "Hospitalización Colectiva",
+  "SEGUROS DE CRÉDITOS", "Seguros de Crédito"
 )
 
 
@@ -184,7 +198,7 @@ prima_contable <- prima_h |>
 Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
   filter(
     fcobro >= "2026-01-01",
-    fcobro <= "2026-01-15",
+    fcobro <= "2026-01-27",
     iestadorec == "C") |> 
   collect()
 
@@ -255,5 +269,50 @@ Prima_definitiva <- Prima_definitiva |>
     `Monto de Comisión Tecnica`  = replace_na(`Monto de Comisión Tecnica`, 0)
   )
   
-  
+Rcv <- tbl(SYSIP, "adpolcob") |>
+  filter(fanopol == "2026",
+         fmespol == 1) |>
+  # filter(
+  #   fcobro >= "2026-01-01",
+  #   fcobro <= "2026-01-25",
+  #   iestadorec == "C") |> 
+  collect()
+
+
+coberturas <- tbl(SYSIP, "MACOBERTURAS") |>
+  collect()
+
+
+res <- left_join(Rcv, coberturas, by = c("ccober" = "ccobertura")) |>
+  distinct(crecibo, .keep_all = TRUE)
+
+RCV <- Rcv |>
+  mutate(cnpoliza = str_trim(cnpoliza)) |>
+  distinct(cnpoliza, .keep_all = TRUE)
+
+ramo_rcv <- left_join(Rcv, RCV, by = "cnpoliza") |>
+  distinct(cnpoliza, .keep_all = TRUE) |>
+  filter(tipo_de_ramo.x == "Automovil",
+         cobertura.x == "RCV") |>
+  select(cnpoliza, cobertura.x)
+
+
+def <- left_join(Recibos_detalle, ramo_rcv, by = c("Nº de Póliza" = "cnpoliza")) |>
+  mutate(ramo = str_trim(ramo)) |>
+  filter(ramo == "AUTOMOVIL")
+
+def1 <- def |>
+  mutate(ramo2 = ifelse(cobertura.x =="RCV", "Responsabilidad Civil de Vehículos", "Casco"))
+
+
+
+
+db_path <- "registro_documentos.db"
+
+con <- dbConnect(SQLite(), db_path)
+dbGetQuery(con, "SELECT * FROM usuarios")
+dbExecute(con, "INSERT INTO usuarios (user, pass) VALUES ('master', 'c1037729.'),('chernandez','4ctu4314l')")
+
+
+
 
