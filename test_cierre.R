@@ -93,24 +93,20 @@ Contabilidad_trabajada <- Contabilidad_preliminar |>
 prima_bruta <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
          fec_emis <= as.Date("2026-01-25")) |> 
-  mutate(ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
-  group_by(ramo) |>
-  summarise(`Prima Bruta` = sum(abs(saldo))) |>
-  drop_na(ramo)
-
+  mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
+  drop_na(Ramo)
+  
 
 comisiones <- Contabilidad_Consolidada |>
   filter(fec_emis >= as.Date("2026-01-01"),
          fec_emis <= as.Date("2026-01-25")) |> 
-  mutate(ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
-  filter(ramo != "Bancarios", 
-         ramo != "Sociedades de Corretaje",
-         ramo != "Corredores de Seguros") |>
-  group_by(ramo) |> 
-  summarise(Comisiones = sum(abs(saldo))) |> 
-  drop_na(ramo)
+  mutate(Ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
+  filter(Ramo != "Bancarios", 
+         Ramo != "Sociedades de Corretaje",
+         Ramo != "Corredores de Seguros") |>
+  drop_na(Ramo)
 
-prima_com <- full_join(prima_bruta, comisiones, by = "ramo")
+prima_com <- full_join(prima_bruta, comisiones, by = "Ramo")
 
 tabla_mapeo <- tribble(
   ~ramo_original,              ~ramo_estandar,

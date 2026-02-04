@@ -216,6 +216,9 @@ server <- function(input, output, session) {
   w_reaseguro <- Waiter$new(id = "reaseguro", html = msj_carga, color = "#2c3e50cc")
   w_rrc       <- Waiter$new(id = "rrc", html = msj_carga, color = "#2c3e50cc")
   w_balance   <- Waiter$new(id = "balance", html = msj_carga, color = "#2c3e50cc")
+  w_sysipdd    <- Waiter$new(id = "sysipdd", html = msj_carga, color = "#2c3e50cc")
+  w_profitdd    <- Waiter$new(id = "profitdd", html = msj_carga, color = "#2c3e50cc")
+  w_comisionprofitdd <- Waiter$new(id = "comisionprofitdd", html = msj_carga, color = "#2c3e50cc")
   
   
   
@@ -300,7 +303,13 @@ server <- function(input, output, session) {
                                  language = "es"),
               ),
               tabPanel("Primas/ Comisiones / Devoluciones", 
-                       DTOutput("primas")
+                       DTOutput("primas"),
+                       br(),
+                       DTOutput("sysipdd"),
+                       br(),
+                       DTOutput("profitdd"),
+                       br(),
+                       DTOutput("comisionprofitdd")
               ),
               tabPanel("Reaseguro", 
                        DTOutput("reaseguro")
@@ -479,6 +488,85 @@ server <- function(input, output, session) {
   })
   
   
+  
+  primas_SYSIP_DD <- reactive({
+    req(input$f_cierre)
+    f1 <- format(input$f_cierre[1], "%Y-%m-%d")
+    f2 <- format(input$f_cierre[2], "%Y-%m-%d")
+    
+    Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
+      filter(
+        fcobro >= f1,
+        fcobro <= f2,
+        iestadorec == "C") |> 
+      collect()
+    
+    maramos <- tbl(SYSIP, "MARAMOS") |> 
+      collect()
+    
+    Recibos_ramos <- Recibos_SYSIP |> 
+      left_join(maramos, by ="cramo") |>
+      mutate(cnrecibo = str_trim(cnrecibo))
+    
+    Recibos_POL <- tbl(SYSIP, "ADPOLTAR") |> 
+      select(cnrecibo, ccober) |>
+      mutate(cnrecibo = str_trim(cnrecibo),
+             ccober = str_trim(ccober)) |>
+      distinct(cnrecibo, .keep_all = TRUE) |>
+      collect()
+    
+    Recibos_detalle <- Recibos_ramos |> 
+      select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
+             cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
+             pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
+      rename("Nº de Póliza" = cnpoliza,
+             Ramo = xdescripcion_l,
+             "Fecha de Emision Recibo" = femision,
+             "Fecha desde Póliza" = fdesde_pol,
+             "Fecha Hasta Póliza" = fhasta_pol,
+             "Cédula Tomador" = ctenedor,
+             "Nro de Recibo" = cnrecibo,
+             "Fecha desde Recibo" = fdesde,
+             "Fecha hasta Recibo" = fhasta,
+             "Fecha de Cobro" = fcobro,
+             Moneda = cmoneda,
+             "Tasa de Cambio" = ptasamon_pago,
+             "Suma Asegurada" = msumabruta,
+             "Suma Asegurada Moneda Extranjera" = msumabrutaext,
+             "Prima Bruta" = mprimabruta,
+             "Prima Bruta Moneda Extranjera" = mprimabrutaext,
+             "Porcentaje de Comisión" = pcomision,
+             "Monto de Comisión" = mcomision,
+             "Monto Comision Extranjera" = mcomisionext,
+             "Prima Cedida en Reaseguro" = mpcedida,
+             "Prima Cedida Moneda Extranjera"= mpcedidaext,
+             "Prima Cedida Facultativo" = mpfp,
+             "Prima Cedida Facultativo Moneda Extranjera" = mpfpext,
+             "Prima Retenida" = mpret,
+             "Prima Retenida Moneda Extranjera" = mpretext) |>
+      mutate(Ramo = str_trim(Ramo),
+             `Nro de Recibo` = str_trim(`Nro de Recibo`))
+    
+    RCV <- left_join(Recibos_detalle, Recibos_POL, by = c("Nro de Recibo" = "cnrecibo"))
+    
+    Recibos_ramos_plan <- RCV |>
+      mutate(
+        Ramo2 = case_when(
+          Ramo == "AUTOMOVIL" & ccober == "1" ~ "AUTOMOVIL",
+          Ramo == "AUTOMOVIL" & ccober == "2" ~ "AUTOMOVIL",
+          TRUE ~ "Responsabilidad Civil Vehículos"),
+        Ramo = ifelse(Ramo == "AUTOMOVIL" & Ramo2 == "Responsabilidad Civil Vehículos", Ramo2, Ramo)
+      )
+    
+    prima_tecnica_h <- homologar_ramos(Recibos_ramos_plan, tabla_mapeo) |>
+      mutate(Ramo = str_trim(ramo_estandar))
+    
+    prima_tecnica_h
+    
+  })
+  
+  
+  
   primas_PROFIT <- reactive({
     req(input$f_cierre)
     f1 <- input$f_cierre[1]
@@ -537,6 +625,83 @@ server <- function(input, output, session) {
     prima_contable
     
   })
+  
+  
+  primas_PROFIT_DD <- reactive({
+    req(input$f_cierre)
+    f1 <- input$f_cierre[1]
+    f2 <- input$f_cierre[2]
+    
+    cuentas <- tbl(PROFIT, "SCCUENTA") |> 
+      collect()
+    
+    saldos <- tbl(PROFIT, "SCREN_CO") |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
+      collect()
+    
+    
+    Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+    
+    Contabilidad_consolidada <- Contabilidad |> 
+      mutate(saldo = monto_d - monto_h,
+             nro_recibo = str_extract(descri, "(?<=Nro_Recibo\\s|RECIBO\\s)[0-9-]+")) |> 
+      select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
+    
+    prima_bruta <- Contabilidad_consolidada |>
+      filter(fec_emis >= f1,
+             fec_emis <= f2) |> 
+      mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
+      drop_na(Ramo)
+    
+    prima_h <- homologar_ramos(prima_bruta, tabla_mapeo) |>
+      filter(ramo_estandar != "Sociedades de Corretaje ") |>
+      mutate(Ramo = str_trim(ramo_estandar))
+    
+    
+    prima_h
+    
+  })
+  
+  comisiones_PROFIT_DD <- reactive({
+    req(input$f_cierre)
+    f1 <- input$f_cierre[1]
+    f2 <- input$f_cierre[2]
+    
+    cuentas <- tbl(PROFIT, "SCCUENTA") |> 
+      collect()
+    
+    saldos <- tbl(PROFIT, "SCREN_CO") |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
+      collect()
+    
+    
+    Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+    
+    Contabilidad_consolidada <- Contabilidad |> 
+      mutate(saldo = monto_d - monto_h,
+             nro_recibo = str_extract(descri, "(?<=Nro_Recibo\\s|RECIBO\\s)[0-9-]+")) |> 
+      select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
+    
+    comisiones <- Contabilidad_consolidada |>
+      filter(fec_emis >= f1,
+             fec_emis <= f2) |> 
+      mutate(Ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
+      filter(Ramo != "Bancarios", 
+             Ramo != "Sociedades de Corretaje",
+             Ramo != "Corredores de Seguros") |>
+      drop_na(Ramo)
+    
+    comisiones_h <- homologar_ramos(comisiones, tabla_mapeo) |>
+      filter(ramo_estandar != "Sociedades de Corretaje ")|>
+      mutate(Ramo = str_trim(ramo_estandar))
+    
+    
+    comisiones_h
+  })
+  
+  
   
   
   prima_DEFINITIVA <- reactive({
@@ -875,7 +1040,7 @@ server <- function(input, output, session) {
     w_primas$show()
     on.exit(w_primas$hide())
     
-    datatable(prima_DEFINITIVA(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
+    datatable(prima_DEFINITIVA(), class = 'cell-border hover', rownames = FALSE, selection = 'single', options = list(language =list(url = traduccion_es),
                                  dom = 't',
                                  ordering = FALSE,
                                  paging = FALSE)) |>
@@ -898,6 +1063,150 @@ server <- function(input, output, session) {
   })
   
  
+  output$sysipdd <- renderDT({
+    
+    w_sysipdd$show()
+    on.exit(w_sysipdd$hide())
+    
+    prima_ramo <- prima_DEFINITIVA()
+    prima_dd <-primas_SYSIP_DD()
+    ramo_select <- input$primas_rows_selected
+    
+    validate(need(ramo_select, "Seleccione un Ramo en la tabla principal para ver detalle SYSIP"))
+    
+    ramo_select_name <- prima_ramo$Ramo[ramo_select]
+    
+    detalle <-  prima_dd |>
+      filter(Ramo == ramo_select_name)
+    
+    
+    cols_a_formatear <- c(
+      "Suma Asegurada", "Suma Asegurada Moneda Extranjera", 
+      "Prima Bruta", "Prima Bruta Moneda Extranjera", 
+      "Monto de Comisión", "Monto Comision Extranjera", # <--- Corregido aquí
+      "Prima Cedida en Reaseguro", "Prima Cedida Moneda Extranjera", 
+      "Prima Retenida", "Prima Retenida Moneda Extranjera", 
+      "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
+    )
+    
+    datatable(detalle, options = list(dom = 't')) |>
+    formatCurrency(columns = cols_a_formatear,
+                                 currency = " ",
+                                 interval = 3, 
+                                 mark = ".", 
+                                 dec.mark = ",",
+                                 digits = 2) |>
+      formatDate(c('Fecha de Emision Recibo',
+                   'Fecha desde Póliza',
+                   'Fecha Hasta Póliza',
+                   'Fecha desde Recibo',
+                   'Fecha hasta Recibo',
+                   'Fecha de Cobro'
+                   ), method = 'toLocaleString',
+                 params = list('es-ES', list(day='numeric', month='numeric', year='numeric')))
+    
+    
+    
+  })
+  
+  
+  output$profitdd <- renderDT({
+    
+    w_profitdd$show()
+    on.exit(w_profitdd$hide())
+    
+    prima_ramo <- prima_DEFINITIVA()
+    prima_dd <-primas_PROFIT_DD()
+    ramo_select <- input$primas_rows_selected
+    
+    validate(need(ramo_select, "Seleccione un Ramo en la tabla principal para ver detalle PROFIT"))
+    
+    ramo_select_name <- prima_ramo$Ramo[ramo_select]
+    
+    detalle <-  prima_dd |>
+      filter(Ramo == ramo_select_name)
+    
+    
+    cols_a_formatear <- c(
+      "Suma Asegurada", "Suma Asegurada Moneda Extranjera", 
+      "Prima Bruta", "Prima Bruta Moneda Extranjera", 
+      "Monto de Comisión", "Monto Comision Extranjera", # <--- Corregido aquí
+      "Prima Cedida en Reaseguro", "Prima Cedida Moneda Extranjera", 
+      "Prima Retenida", "Prima Retenida Moneda Extranjera", 
+      "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
+    )
+    
+    datatable(detalle, options = list(dom = 't')) 
+    
+    # |>
+    #   formatCurrency(columns = cols_a_formatear,
+    #                  currency = " ",
+    #                  interval = 3, 
+    #                  mark = ".", 
+    #                  dec.mark = ",",
+    #                  digits = 2) |>
+    #   formatDate(c('Fecha de Emision Recibo',
+    #                'Fecha desde Póliza',
+    #                'Fecha Hasta Póliza',
+    #                'Fecha desde Recibo',
+    #                'Fecha hasta Recibo',
+    #                'Fecha de Cobro'
+    #   ), method = 'toLocaleString',
+    #   params = list('es-ES', list(day='numeric', month='numeric', year='numeric')))
+    
+    
+    
+  })
+  
+  
+  output$comisionprofitdd <- renderDT({
+    
+    w_comisionprofitdd$show()
+    on.exit(w_comisionprofitdd$hide())
+    
+    prima_ramo <- prima_DEFINITIVA()
+    prima_dd <-comisiones_PROFIT_DD()
+    ramo_select <- input$primas_rows_selected
+    
+    validate(need(ramo_select, "Seleccione un Ramo en la tabla principal para ver detalle de Comisiones PROFIT"))
+    
+    ramo_select_name <- prima_ramo$Ramo[ramo_select]
+    
+    detalle <-  prima_dd |>
+      filter(Ramo == ramo_select_name)
+    
+    
+    cols_a_formatear <- c(
+      "Suma Asegurada", "Suma Asegurada Moneda Extranjera", 
+      "Prima Bruta", "Prima Bruta Moneda Extranjera", 
+      "Monto de Comisión", "Monto Comision Extranjera", # <--- Corregido aquí
+      "Prima Cedida en Reaseguro", "Prima Cedida Moneda Extranjera", 
+      "Prima Retenida", "Prima Retenida Moneda Extranjera", 
+      "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
+    )
+    
+    datatable(detalle, options = list(dom = 't')) 
+    
+    # |>
+    #   formatCurrency(columns = cols_a_formatear,
+    #                  currency = " ",
+    #                  interval = 3, 
+    #                  mark = ".", 
+    #                  dec.mark = ",",
+    #                  digits = 2) |>
+    #   formatDate(c('Fecha de Emision Recibo',
+    #                'Fecha desde Póliza',
+    #                'Fecha Hasta Póliza',
+    #                'Fecha desde Recibo',
+    #                'Fecha hasta Recibo',
+    #                'Fecha de Cobro'
+    #   ), method = 'toLocaleString',
+    #   params = list('es-ES', list(day='numeric', month='numeric', year='numeric')))
+    
+    
+    
+  })
+  
   output$siniestros <- renderText({
     
     
