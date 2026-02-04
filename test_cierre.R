@@ -12,6 +12,7 @@ library(janitor)
 library(scales)
 library(tidyverse)
 library(pointblank)
+library(waiter)
 
 options(scipen = 999)
 
@@ -337,8 +338,9 @@ Recibos_ramos <- Recibos_SYSIP |>
 
 Recibos_detallado <- Recibos_ramos |> 
   select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
-         cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
-         pcomision, mcomision, mcomisionext) |> 
+         cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, 
+         msumabrutaext, mprimabruta, mprimabrutaext,pcomision, mcomision, 
+         mcomisionext, mpcedida, mpcedidaext, mpfp, mpfpext, mpret, mpretext) |> 
   rename("Nº de Póliza" = cnpoliza,
          Ramo = xdescripcion_l,
          "Fecha de Emision Recibo" = femision,
@@ -357,7 +359,13 @@ Recibos_detallado <- Recibos_ramos |>
          "Prima Bruta Moneda Extranjera" = mprimabrutaext,
          "Porcentaje de Comisión" = pcomision,
          "Monto de Comisión" = mcomision,
-         "Monto Comision Extranjera" = mcomisionext) |>
+         "Monto Comision Extranjera" = mcomisionext,
+         "Prima Cedida en Reaseguro SYSIP" = mpcedida,
+         "Prima Cedida Moneda Extranjera SYSIP"= mpcedidaext,
+         "Prima Cedida Facultativo SYSIP" = mpfp,
+         "Prima Cedida Facultativo Moneda Extranjera SYSIP" = mpfpext,
+         "Prima Retenida SYSIP" = mpret,
+         "Prima Retenida Moneda Extranjera SYSIP" = mpretext)|>
          mutate(Ramo = str_trim(Ramo),
                 `Nro de Recibo` = str_trim(`Nro de Recibo`))
 
@@ -384,7 +392,14 @@ recibos_re <- Recibo_detallado_h |>
     Ramo == "Vida Individual"                     ~ 0.70,
     TRUE                                          ~ 0.00  
   ),
-    `Prima Cedida` = `% de Cesion` * `Prima Bruta`)
+    `Prima Cedida` = `% de Cesion` * `Prima Bruta`) |>
+  group_by(Ramo) |>
+  summarise(
+    `Prima Bruta` = sum(`Prima Bruta`),
+    `Prima Cedida en Reaseguro SYSIP` = sum(`Prima Cedida en Reaseguro SYSIP`),
+    `Prima Cedida` = sum(`Prima Cedida`),
+    Diferencia =  `Prima Cedida en Reaseguro SYSIP` -  `Prima Cedida`
+  )
 
 RRC <- recibos_re |> 
   mutate(`Fecha desde Recibo`= as.Date(`Fecha desde Recibo`),
@@ -425,20 +440,6 @@ RRC_RAMO <- RRC |>
             `RRC Retenida` = sum(rrc_retenida)
   )
 
-
-
-
-Recibos_ODS <- tbl(SYSIP, "ODSRECIBO") |> 
-  filter(
-    fcobro >= "2026-01-01",
-    fcobro <= "2026-01-31",) |>
-  select(cnrecibo, xplan, ccoberauto) |>
-  distinct(cnrecibo, .keep_all = TRUE) |>
-  show_query() |>
-  collect()
-
-recibos_ods_filter <- Recibos_ODS |>
- mutate(cnrecibo = str_trim(cnrecibo))
   
   
   

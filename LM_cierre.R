@@ -14,6 +14,7 @@ library(janitor)
 library(scales)
 library(tidyverse)
 library(pointblank)
+library(waiter)
 
 options(scipen = 999)
 
@@ -46,13 +47,14 @@ onStop(function() {
   poolClose(SYSIP)
 })
 
+
+waiter_set_theme(html = spin_orbit(), color = "darkblue")
 # --- Configuración de Base de Datos y Almacenamiento ---
 dir_storage <- "archivos_pdf"
 if (!dir.exists(dir_storage)) dir.create(dir_storage)
 
 db_path <- "registro_documentos.db"
 con <- dbConnect(SQLite(), db_path)
-
 
 # Configuración global de idioma para tablas
 traduccion_es <- list(
@@ -153,6 +155,7 @@ dbExecute(con, "CREATE TABLE IF NOT EXISTS usuarios (
 
 ui <- fluidPage(
   useShinyjs(),
+  useWaiter(),
   theme = bslib::bs_theme(bootswatch = "flatly"),
   tags$head(
     tags$style(HTML("
@@ -199,6 +202,23 @@ server <- function(input, output, session) {
   # Variable reactiva para controlar el acceso
   logged_in <- reactiveVal(FALSE)
   user_data <- reactiveVal(NULL)
+  
+  
+  msj_carga <- tagList(
+    spin_loaders(id = 16, color = "#ff6675", style = NULL), 
+    br(), 
+    h4("Consultando base de datos...", style = "color: #2c3e50cc; margin-top: 20px;")
+  )
+  
+  
+  
+  w_primas    <- Waiter$new(id = "primas", html = msj_carga, color = "#2c3e50cc")
+  w_reaseguro <- Waiter$new(id = "reaseguro", html = msj_carga, color = "#2c3e50cc")
+  w_rrc       <- Waiter$new(id = "rrc", html = msj_carga, color = "#2c3e50cc")
+  w_balance   <- Waiter$new(id = "balance", html = msj_carga, color = "#2c3e50cc")
+  
+  
+  
   
   # --- UI DE LOGIN ---
   login_ui <- div(class = "login-bg",
@@ -288,24 +308,24 @@ server <- function(input, output, session) {
               tabPanel("Reservas de Riesgo en Curso", 
                        DTOutput("rrc")
               ),
-              tabPanel("Reserva Contingente de Fianzas", 
-                       DTOutput("contingencia_f")
-              ),
-              tabPanel("Reserva Riesgo Catastróficos", 
-                       DTOutput("catastrofico")
-              ),
-              tabPanel("Siniestros", 
-                       verbatimTextOutput("siniestros")
-              ),
-              tabPanel("Reserva de Siniestros / IBNR", 
-                       DTOutput("reserva_siniestros")
-              ),
-              tabPanel("Reserva de Insuficiencia de Primas", 
-                       DTOutput("rcip")
-              ),
-              tabPanel("Anexo 17 / 19 SUDEASEG", 
-                       DTOutput("anexos")
-              ),
+              # tabPanel("Reserva Contingente de Fianzas", 
+              #          DTOutput("contingencia_f")
+              # ),
+              # tabPanel("Reserva Riesgo Catastróficos", 
+              #          DTOutput("catastrofico")
+              # ),
+              # tabPanel("Siniestros", 
+              #          verbatimTextOutput("siniestros")
+              # ),
+              # tabPanel("Reserva de Siniestros / IBNR", 
+              #          DTOutput("reserva_siniestros")
+              # ),
+              # tabPanel("Reserva de Insuficiencia de Primas", 
+              #          DTOutput("rcip")
+              # ),
+              # tabPanel("Anexo 17 / 19 SUDEASEG", 
+              #          DTOutput("anexos")
+              # ),
               tabPanel("Balance Preliminar", 
                        DTOutput("balance")
               ),
@@ -539,7 +559,8 @@ server <- function(input, output, session) {
         `Diferencia Comisiones`      = `Monto de Comisión Contable` - `Monto de Comisión Tecnica`
       )
     
-    Prima_definitiva
+    Prima_definitiva |>
+      adorn_totals("row", fill = "-", na.rm = TRUE, name = "TOTAL GENERAL")
     
   })
   
@@ -678,7 +699,8 @@ server <- function(input, output, session) {
                 `RRC Retenida` = sum(rrc_retenida)
       )
   
-    RRC_RAMO
+    RRC_RAMO |>
+      adorn_totals("row", fill = "-", na.rm = TRUE, name = "TOTAL GENERAL")
   
   })
   
@@ -696,6 +718,13 @@ server <- function(input, output, session) {
         iestadorec == "C") |> 
       collect()
     
+    Recibos_POL <- tbl(SYSIP, "ADPOLTAR") |> 
+      select(cnrecibo, ccober) |>
+      mutate(cnrecibo = str_trim(cnrecibo),
+             ccober = str_trim(ccober)) |>
+      distinct(cnrecibo, .keep_all = TRUE) |>
+      collect()
+    
     maramos <- tbl(SYSIP, "MARAMOS") |> 
       collect()
     
@@ -705,7 +734,7 @@ server <- function(input, output, session) {
     Recibos_detallado <- Recibos_ramos |> 
       select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
              cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
-             pcomision, mcomision, mcomisionext) |> 
+             pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
       rename("Nº de Póliza" = cnpoliza,
              Ramo = xdescripcion_l,
              "Fecha de Emision Recibo" = femision,
@@ -724,10 +753,29 @@ server <- function(input, output, session) {
              "Prima Bruta Moneda Extranjera" = mprimabrutaext,
              "Porcentaje de Comisión" = pcomision,
              "Monto de Comisión" = mcomision,
-             "Monto Comision Extranjera" = mcomisionext) |>
-      mutate(Ramo = str_trim(Ramo))
+             "Monto Comision Extranjera" = mcomisionext,
+             "Prima Cedida en Reaseguro SYSIP" = mpcedida,
+             "Prima Cedida Moneda Extranjera SYSIP"= mpcedidaext,
+             "Prima Cedida Facultativo SYSIP" = mpfp,
+             "Prima Cedida Facultativo Moneda Extranjera SYSIP" = mpfpext,
+             "Prima Retenida SYSIP" = mpret,
+             "Prima Retenida Moneda Extranjera SYSIP" = mpretext) |>
+      mutate(Ramo = str_trim(Ramo),
+             `Nro de Recibo` = str_trim(`Nro de Recibo`),
+             `Prima Cedida en Reaseguro SYSIP` = replace_na(`Prima Cedida en Reaseguro SYSIP`, 0))
     
-    Recibo_detallado_h <- homologar_ramos(Recibos_detallado, tabla_mapeo)
+    RCV <- left_join(Recibos_detallado, Recibos_POL, by = c("Nro de Recibo" = "cnrecibo"))
+    
+    Recibos_ramos_plan <- RCV |>
+      mutate(
+        Ramo2 = case_when(
+          Ramo == "AUTOMOVIL" & ccober == "1" ~ "AUTOMOVIL",
+          Ramo == "AUTOMOVIL" & ccober == "2" ~ "AUTOMOVIL",
+          TRUE ~ "Responsabilidad Civil Vehículos"),
+        Ramo = ifelse(Ramo == "AUTOMOVIL" & Ramo2 == "Responsabilidad Civil Vehículos", Ramo2, Ramo)
+      )
+    
+    Recibo_detallado_h <- homologar_ramos(Recibos_ramos_plan, tabla_mapeo)
     
     Recibo_detallado_h <- Recibo_detallado_h |>
       mutate(Ramo = ramo_estandar)
@@ -750,10 +798,47 @@ server <- function(input, output, session) {
         Ramo == "Vida Individual"                     ~ 0.70,
         TRUE                                          ~ 0.00  
       ),
-      `Prima Cedida` = `% de Cesion` * `Prima Bruta`)
+      `Prima Cedida` = `% de Cesion` * `Prima Bruta`) |>
+      group_by(Ramo) |>
+      summarise(
+        `Prima Bruta` = sum(`Prima Bruta`),
+        `Prima Cedida en Reaseguro SYSIP` = sum(`Prima Cedida en Reaseguro SYSIP`),
+        `Prima Cedida` = sum(`Prima Cedida`),
+        Diferencia =  `Prima Cedida en Reaseguro SYSIP` -  `Prima Cedida`
+      )
     
-  
+     recibos_re |>
+       adorn_totals("row", fill = "-", na.rm = TRUE, name = "TOTAL GENERAL")
+     
   })
+  
+  
+  
+  balance_pre <- reactive({
+    req(input$f_cierre)
+    f1 <- format(input$f_cierre[1], "%Y-%m-%d")
+    f2 <- format(input$f_cierre[2], "%Y-%m-%d")
+  
+  cuentas <- tbl(PROFIT, "SCCUENTA") |> 
+    collect()
+  
+  saldos <- tbl(PROFIT, "SCREN_CO") |> 
+    filter(as.Date(fec_emis) >= f1,
+           as.Date(fec_emis) <= f2) |>
+    collect()
+  
+  
+  Contabilidad <- left_join(saldos, cuentas, by = "co_cue")
+ 
+   Contabilidad_Consolidada <- Contabilidad |> 
+    filter(as.Date(fec_emis) >= f1,
+           as.Date(fec_emis) <= f2) |>
+    mutate(saldo = monto_d - monto_h) |>
+    select(co_cue, des_cue, fec_emis, descri, monto_d, monto_h, saldo)
+   
+   Contabilidad_Consolidada
+  
+})
   
   
   
@@ -787,7 +872,8 @@ server <- function(input, output, session) {
   
   output$primas <- renderDT({
     
-   
+    w_primas$show()
+    on.exit(w_primas$hide())
     
     datatable(prima_DEFINITIVA(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
                                  dom = 't',
@@ -813,6 +899,8 @@ server <- function(input, output, session) {
   
  
   output$siniestros <- renderText({
+    
+    
     dataops_source()
   
     
@@ -820,11 +908,33 @@ server <- function(input, output, session) {
   
   output$reaseguro <- renderDT({
     
-    bordereaux()
+    w_reaseguro$show()
+    on.exit(w_reaseguro$hide())
+    
+    
+    datatable(bordereaux(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
+                                                                                                dom = 't',
+                                                                                                ordering = FALSE,
+                                                                                                paging = FALSE)) |>
+      formatStyle('Diferencia', 
+                  color = styleInterval(c(-0.01, 0.01), c("#721c24", "#2c3e50", "#155724")),
+                  backgroundColor = styleInterval(c(-0.01, 0.01), c("#ffcccc", "#ffffff", "#d4edda"))) |> 
+      formatCurrency(columns = c('Prima Bruta',
+                                 'Prima Cedida en Reaseguro SYSIP',
+                                 'Prima Cedida',
+                                 'Diferencia'), 
+                     currency = "Bs. ", 
+                     interval = 3, 
+                     mark = ".", 
+                     dec.mark = ",",
+                     digits = 2)
     
   })
 
   output$rrc <- renderDT({
+    
+    w_rrc$show()
+    on.exit(w_rrc$hide())
     
     datatable(rrc(), class = 'cell-border hover', rownames = FALSE, options = list(language =list(url = traduccion_es),
                                               dom = 't',
@@ -871,9 +981,11 @@ server <- function(input, output, session) {
     
   })
   
-  output$balances <- renderDT({
-    
-    dataops_source()
+  output$balance <- renderDT({
+    w_balance$show()
+    on.exit(w_balance$hide())
+   
+     balance_pre()
     
   })
 }
