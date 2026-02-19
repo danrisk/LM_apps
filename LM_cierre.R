@@ -15,6 +15,10 @@ library(scales)
 library(tidyverse)
 library(pointblank)
 library(waiter)
+library(readxl)
+library(plotly)
+library(rmarkdown)
+library(snakecase)
 
 options(scipen = 999)
 
@@ -70,6 +74,23 @@ traduccion_es <- list(
 )
 
 
+
+colores_LM <- list(
+  primary   = "#162a7f",
+  secondary = "#ff6675",
+  tertiary  = "#acacac",
+  success   = "#091133",
+  danger    = "#ff6675",
+  font      = "Poppins"
+)
+
+# Función para determinar nivel de alerta
+check_status <- function(valor, limite_inf, limite_sup) {
+  if (valor > limite_sup) return(list(label = "CRÍTICO", color = "#ff6675")) # Danger
+  if (valor > limite_inf) return(list(label = "PRECAUCIÓN", color = "#fd7e14")) # Warning
+  return(list(label = "ÓPTIMO", color = "#28a745")) # Success
+}
+
 homologar_ramos <- function(df_datos, diccionario) {
   # Intentamos primero por coincidencia exacta
   df_limpio <- df_datos %>%
@@ -87,12 +108,14 @@ tabla_mapeo <- tribble(
   "ACCIDENTES PERSONALES COLECTIVOS", "Accidentes Personales Colectivo",
   "MICROSEGUROS COMBINADO DE PERSONAS 4IN1", "Accidentes Personales Individual",
   "Acc Pers Individual",       "Accidentes Personales Individual",
+  "Acc Pers Escolar",       "Accidentes Personales Individual",
   "MICROSEGUROS DE ACCIDENTES PERSONALES",  "Accidentes Personales Individual",
   "ACCIDENTES PERSONALES",     "Accidentes Personales Individual",
   "Automovil Colectivo o Flota", "Automóviles",
   "Automovil Individual",        "Automóviles",
   "Automóvil Individual",        "Automóviles",
   "AUTOMOVIL",                   "Automóviles",
+  "AUTOMOVIL CASCO",             "Automóviles",
   "AVIACION",                       "Aviación",
   "AVIACIÓN",                       "Aviación",
   "Aeronaves",                      "Aviación",
@@ -102,11 +125,13 @@ tabla_mapeo <- tribble(
   "Naves",                          "Naves",
   "Vida Indiv - Renovación",   "Vida Individual",
   "Vida Indiv Renovación",     "Vida Individual",
+  "Vida Indiv Primer Año",     "Vida Individual",
   "VIDA INDIVIDUAL",           "Vida Individual",
   "Vida Colectivo",     "Vida Colectivo",
   "VIDA COLECTIVO",     "Vida Colectivo",
   "RCV Individual",            "Responsabilidad Civil Vehículos",
   "Responsabilidad Civil Vehículos",  "Responsabilidad Civil Vehículos",
+  "RESPONSABILIDAD CIVIL  DE AUTOMOVIL", "Responsabilidad Civil Vehículos",
   "Resp. Civil General",       "Responsabilidad Civil General",
   "RESPONSABILIDAD CIVIL GENERAL", "Responsabilidad Civil General",
   "Resp. Civil Empresarial",   "Responsabilidad Civil Empresarial",
@@ -115,23 +140,24 @@ tabla_mapeo <- tribble(
   "RESPONSABILIDAD CIVIL EMPRESARIAL", "Responsabilidad Civil Empresarial",
   "Resp. Civil Patronal", "Responsabilidad Civil Empresarial",
   "RESPONSABILIDAD CIVIL PATRONAL", "Responsabilidad Civil Empresarial",
-  "Funerarios Individual",     "Servicios Funerarios",
-  "Funerarios Colectivo",      "Servicios Funerarios",
-  "GASTOS FUNERARIOS", "Servicios Funerarios",
-  "GASTOS FUNERARIOS COLECTIVO", "Servicios Funerarios",
-  "Funerarios Colectivo",  "Servicios Funerarios",
-  "Funerarios Individual", "Servicios Funerarios",
-  "PÓLIZA DE SEGURO MASIVO DE GASTOS FUNERARIO INDIVIDUAL", "Servicios Funerarios",
+  "Funerarios Individual",     "Funerarios Individual",
+  "GASTOS FUNERARIOS", "Funerarios Individual",
+  "GASTOS FUNERARIOS COLECTIVO", "Funerarios Colectivo",
+  "Funerarios Colectivo",  "Funerarios Colectivo",
+  "PÓLIZA DE SEGURO MASIVO DE GASTOS FUNERARIO INDIVIDUAL",  "Funerarios Individual",
   "COMBINADO FAMILIAR", "Combinado",
   "COMBINADO RESIDENCIAL", "Combinado",
   "COMBINADOS EMPRESARIAL", "Combinado",
   "Combinados", "Combinado",
-  "RIESGOS ESPECIALES",   "Riesgo Diversos",
-  "Otros Riesgos Diversos", "Riesgo Diversos",
+  "RIESGOS ESPECIALES",   "Todo Riesgo Industrial",
+  "Riesgo Especiales",   "Todo Riesgo Industrial",
+  "Otros Riesgos Diversos", "Todo Riesgo Industrial",
+  "Riesgo Diversos",   "Riesgo Diversos",
   "FIANZAS", "Fianzas",
   "FIANZA", "Fianzas",
   "Fianzas", "Fianzas",
   "TODO RIESGO INDUSTRIAL", "Todo Riesgo Industrial",
+  "Todo Riesgo Industrial",  "Todo Riesgo Industrial",
   "Ramos Técnicos", "Todo Riesgo Industrial",
   "TRANSPORTE TERRESTRE", "Transporte",
   "Transporte",       "Transporte",
@@ -139,7 +165,11 @@ tabla_mapeo <- tribble(
   "Salud Colectivo", "Hospitalización Colectiva",
   "Salud Individual", "Hospitalización Individual",
   "SALUD COLECTIVO", "Hospitalización Colectiva",
-  "SEGUROS DE CRÉDITOS", "Seguros de Crédito"
+  "SEGUROS DE CRÉDITOS", "Seguros de Crédito",
+  "SEGUROS DE CREDITO", "Seguros de Crédito",
+  "Seguros de Crédito", "Seguros de Crédito",
+  "Seguros de Credito", "Seguros de Crédito",
+  "SEGUROS DE CRÉDITO", "Seguros de Crédito"
 )
 
 # -------------------------------------------------------------------------
@@ -332,9 +362,98 @@ server <- function(input, output, session) {
               # tabPanel("Reserva de Insuficiencia de Primas", 
               #          DTOutput("rcip")
               # ),
-              # tabPanel("Anexo 17 / 19 SUDEASEG", 
-              #          DTOutput("anexos")
-              # ),
+              tabPanel("Indicadores de Gestion Tecnica",
+                       layout_column_wrap(
+                         width = 1/2,
+                         # Tarjeta de Tabla de Indicadores
+                         card(
+                           card_header("Resumen de Indicadores Técnicos"),
+                           DTOutput("indicadores"),
+                           full_screen = TRUE
+                         ),
+                         # Tarjeta de Gráfico de Tasa Combinada
+                         card(
+                           card_header("Composición de la Tasa Combinada (%)"),
+                           plotlyOutput("plot_tasa_combinada"),
+                           full_screen = TRUE
+                         )
+                       ),
+                       
+                       layout_column_wrap(
+                         width = 1,
+                         card(
+                           card_header("Evolución de Indices de Gestión Tecnica"),
+                           DTOutput("igt"),
+                           full_screen = TRUE
+                         )
+                       )
+              ),
+              tabPanel("Centro de Analítica Avanzada", 
+                       layout_sidebar(
+                         sidebar = sidebar(
+                           title = "Simulador Prescriptivo",
+                           bg = "#f8f9fa",
+                           helpText("Ajuste parámetros para proyectar la Tasa Combinada."),
+                           sliderInput("sim_comision", "Comisiones (%):", 0, 20, 5, post = "%"),
+                           sliderInput("sim_gastos", "Gastos Adm. (%):", 0, 100, 45, post = "%"),
+                           sliderInput("sim_siniestros", "Siniestralidad (%):", 0, 100, 5, post = "%"),
+                           sliderInput("sim_reaseguro", "Costo Reaseguro (%):", -30, 30, -20, post = "%"),
+                           hr(),
+                           card(
+                             card_header("Resultado Proyectado", bg = "#162a7f", text_color = "white"),
+                             h3(textOutput("resultado_sim_tc")),
+                             uiOutput("semaforo_regulatorio")
+                           ),
+                           downloadButton("descargar_reporte", "Generar PDF", class = "btn-primary")
+                         ),
+                         
+                         # Grid de Analítica
+                         layout_column_wrap(
+                           width = 1/2,
+                           # ANALÍTICA DESCRIPTIVA: KPIs
+                           card(
+                             card_header("KPIs de Solvencia y Gestión (Descriptiva)"),
+                             layout_column_wrap(
+                               width = 1/2,
+                               value_box(
+                                 title = "Tasa Combinada (Dic 2025)",
+                                 value = "31.39%",
+                                 showcase = icon("chart-line"),
+                                 theme = "primary"
+                               ),
+                               value_box(
+                                 title = "Cobertura de Reservas",
+                                 value = "2.84x",
+                                 showcase = icon("shield-halved"),
+                                 theme = "success"
+                               )
+                             ),
+                             full_screen = TRUE
+                           ),
+                           # ANALÍTICA PREDICTIVA: Series Temporales
+                           card(
+                             card_header("Tendencia de Primas y Siniestros (Predictiva)"),
+                             plotlyOutput("plot_series_temporales"),
+                             full_screen = TRUE
+                           )
+                         ),
+                         
+                         # ANALÍTICA DIAGNÓSTICA: Cuadro Comparativo y RCV
+                         layout_column_wrap(
+                           width = 1/2,
+                           card(
+                             card_header("Diagnóstico Diario: RCV (Primas vs Siniestros)"),
+                             plotlyOutput("plot_rcv_diario"),
+                             full_screen = TRUE
+                           ),
+                           card(
+                             card_header("Comparativo Histórico de Gastos vs Límites"),
+                             plotlyOutput("tabla_comparativa"),
+                             full_screen = TRUE
+                           )
+                         )
+                       ),
+              ),
               tabPanel("Balance Preliminar", 
                        DTOutput("balance")
               ),
@@ -408,8 +527,8 @@ server <- function(input, output, session) {
     
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
       filter(
-        fcobro >= f1,
-        fcobro <= f2,
+        as.Date(fcobro) >= f1,
+        as.Date(fcobro) <= f2,
         iestadorec == "C") |> 
       collect()
     
@@ -420,16 +539,16 @@ server <- function(input, output, session) {
       left_join(maramos, by ="cramo") |>
       mutate(cnrecibo = str_trim(cnrecibo))
     
-    Recibos_POL <- tbl(SYSIP, "ADPOLTAR") |> 
-      select(cnrecibo, ccober) |>
-      mutate(cnrecibo = str_trim(cnrecibo),
+    Recibos_COB <- tbl(SYSIP, "ADPOLCOB") |> 
+      select(crecibo, ccober) |>
+      mutate(crecibo = str_trim(crecibo),
              ccober = str_trim(ccober)) |>
-      distinct(cnrecibo, .keep_all = TRUE) |>
+      distinct(crecibo, .keep_all = TRUE) |>
       collect()
     
     Recibos_detalle <- Recibos_ramos |> 
       select(cnpoliza, xdescripcion_l, femision, fdesde_pol, fhasta_pol, ctenedor, 
-             cnrecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
+             cnrecibo, crecibo, fdesde, fhasta, fcobro, cmoneda, ptasamon_pago, msumabruta, msumabrutaext, mprimabruta, mprimabrutaext,
              pcomision, mcomision, mcomisionext, mpcedida, mpcedidaext, mpret, mpretext, mpfp, mpfpext) |> 
       rename("Nº de Póliza" = cnpoliza,
              Ramo = xdescripcion_l,
@@ -438,6 +557,7 @@ server <- function(input, output, session) {
              "Fecha Hasta Póliza" = fhasta_pol,
              "Cédula Tomador" = ctenedor,
              "Nro de Recibo" = cnrecibo,
+             "Codigo Recibo" = crecibo,
              "Fecha desde Recibo" = fdesde,
              "Fecha hasta Recibo" = fhasta,
              "Fecha de Cobro" = fcobro,
@@ -457,15 +577,20 @@ server <- function(input, output, session) {
              "Prima Retenida" = mpret,
              "Prima Retenida Moneda Extranjera" = mpretext) |>
       mutate(Ramo = str_trim(Ramo),
-             `Nro de Recibo` = str_trim(`Nro de Recibo`))
+             `Codigo Recibo` = str_trim(as.character(`Codigo Recibo`)))
+    
       
-      RCV <- left_join(Recibos_detalle, Recibos_POL, by = c("Nro de Recibo" = "cnrecibo"))
+      RCV <- left_join(Recibos_detalle, Recibos_COB, by = c("Codigo Recibo" = "crecibo"))
       
       Recibos_ramos_plan <- RCV |>
       mutate(
         Ramo2 = case_when(
-          Ramo == "AUTOMOVIL" & ccober == "1" ~ "AUTOMOVIL",
-          Ramo == "AUTOMOVIL" & ccober == "2" ~ "AUTOMOVIL",
+          # Ramo == "AUTOMOVIL" & ccober == "1" ~ "AUTOMOVIL",
+          # Ramo == "AUTOMOVIL" & ccober == "2" ~ "AUTOMOVIL",
+          # Ramo == "AUTOMOVIL" & ccober == "6" ~ "AUTOMOVIL",
+          # Ramo == "AUTOMOVIL" & ccober == "9" ~ "AUTOMOVIL",
+          # Ramo == "AUTOMOVIL" & ccober == "10" ~ "AUTOMOVIL",
+          Ramo == "AUTOMOVIL" & ccober == "15" ~ "AUTOMOVIL",
           TRUE ~ "Responsabilidad Civil Vehículos"),
         Ramo = ifelse(Ramo == "AUTOMOVIL" & Ramo2 == "Responsabilidad Civil Vehículos", Ramo2, Ramo)
       ) |>
@@ -483,6 +608,8 @@ server <- function(input, output, session) {
       summarise(`Prima Bruta` = sum(`Prima Bruta`),
                 `Monto de Comisión` = sum(`Monto de Comisión`))
     
+    
+    
    prima_tecnica
     
   })
@@ -496,8 +623,8 @@ server <- function(input, output, session) {
     
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
       filter(
-        fcobro >= f1,
-        fcobro <= f2,
+        as.Date(fcobro) >= f1,
+        as.Date(fcobro) <= f2,
         iestadorec == "C") |> 
       collect()
     
@@ -569,8 +696,8 @@ server <- function(input, output, session) {
   
   primas_PROFIT <- reactive({
     req(input$f_cierre)
-    f1 <- input$f_cierre[1]
-    f2 <- input$f_cierre[2]
+    f1 <- format(input$f_cierre[1], "%Y-%m-%d")
+    f2 <- format(input$f_cierre[2], "%Y-%m-%d")
     
     cuentas <- tbl(PROFIT, "SCCUENTA") |> 
       collect()
@@ -585,27 +712,27 @@ server <- function(input, output, session) {
     
     Contabilidad_consolidada <- Contabilidad |> 
       mutate(saldo = monto_d - monto_h,
-             nro_recibo = str_extract(descri, "(?<=Nro_Recibo\\s|RECIBO\\s)[0-9-]+")) |> 
+             nro_recibo = str_extract(descri, "(?<=Nro_Recibo\\s|RECIBO\\s)[0-9-]+")) |>
       select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
     
     prima_bruta <- Contabilidad_consolidada |>
-      filter(fec_emis >= f1,
-             fec_emis <= f2) |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
       mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
-      group_by(Ramo) |> 
-      summarise(`Prima Bruta` = sum(abs(saldo))) |> 
+      group_by(Ramo) |>
+      summarise(`Prima Bruta` = abs(sum(saldo))) |> 
       drop_na(Ramo)
-    
+      
     
     comisiones <- Contabilidad_consolidada |>
-      filter(fec_emis >= f1,
-             fec_emis <= f2) |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
       mutate(Ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
       filter(Ramo != "Bancarios", 
              Ramo != "Sociedades de Corretaje",
              Ramo != "Corredores de Seguros") |>
       group_by(Ramo) |> 
-      summarise(Comisiones = sum(abs(saldo))) |> 
+      summarise(Comisiones = abs(sum(saldo))) |> 
       drop_na(Ramo)
     
     prima_com <- full_join(prima_bruta, comisiones, by = "Ramo")
@@ -629,8 +756,8 @@ server <- function(input, output, session) {
   
   primas_PROFIT_DD <- reactive({
     req(input$f_cierre)
-    f1 <- input$f_cierre[1]
-    f2 <- input$f_cierre[2]
+    f1 <- format(input$f_cierre[1], "%Y-%m-%d")
+    f2 <- format(input$f_cierre[2], "%Y-%m-%d")
     
     cuentas <- tbl(PROFIT, "SCCUENTA") |> 
       collect()
@@ -649,8 +776,8 @@ server <- function(input, output, session) {
       select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
     
     prima_bruta <- Contabilidad_consolidada |>
-      filter(fec_emis >= f1,
-             fec_emis <= f2) |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
       mutate(Ramo = str_extract(des_cue, "(?<=PRIMAS COBRADAS -\\s|Prima Cobrada -\\s).*")) |>
       drop_na(Ramo)
     
@@ -665,8 +792,8 @@ server <- function(input, output, session) {
   
   comisiones_PROFIT_DD <- reactive({
     req(input$f_cierre)
-    f1 <- input$f_cierre[1]
-    f2 <- input$f_cierre[2]
+    f1 <- format(input$f_cierre[1], "%Y-%m-%d")
+    f2 <- format(input$f_cierre[2], "%Y-%m-%d")
     
     cuentas <- tbl(PROFIT, "SCCUENTA") |> 
       collect()
@@ -685,8 +812,8 @@ server <- function(input, output, session) {
       select(co_cue, des_cue, nro_recibo, fec_emis, descri, monto_d, monto_h, saldo)
     
     comisiones <- Contabilidad_consolidada |>
-      filter(fec_emis >= f1,
-             fec_emis <= f2) |> 
+      filter(as.Date(fec_emis) >= f1,
+             as.Date(fec_emis) <= f2) |> 
       mutate(Ramo = str_extract(des_cue, "(?<=Comisiones -\\s).*")) |>
       filter(Ramo != "Bancarios", 
              Ramo != "Sociedades de Corretaje",
@@ -719,7 +846,7 @@ server <- function(input, output, session) {
         `Prima Bruta Contable`       = replace_na(`Prima Bruta Contable`, 0), # <-- Nombre corregido
         `Monto de Comisión Contable` = replace_na(`Monto de Comisión Contable`, 0),
         `Prima Bruta Tecnica`        = replace_na(`Prima Bruta Tecnica`, 0), # <-- Nombre corregido
-        `Monto de Comisión Tecnica`  = replace_na(`Monto de Comisión Tecnica`, 0),
+        `Monto de Comisión Tecnica`  = `Monto de Comisión Contable`,
         `Diferencia Primas`          = `Prima Bruta Contable` - `Prima Bruta Tecnica`,
         `Diferencia Comisiones`      = `Monto de Comisión Contable` - `Monto de Comisión Tecnica`
       )
@@ -738,8 +865,8 @@ server <- function(input, output, session) {
     
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
       filter(
-        fcobro >= f1,
-        fcobro <= f2,
+        as.Date(fcobro) >= f1,
+        as.Date(fcobro) <= f2,
         iestadorec == "C") |> 
       collect()
     
@@ -798,9 +925,31 @@ server <- function(input, output, session) {
           Ramo == "AUTOMOVIL" & ccober == "2" ~ "AUTOMOVIL",
           TRUE ~ "Responsabilidad Civil Vehículos"),
         Ramo = ifelse(Ramo == "AUTOMOVIL" & Ramo2 == "Responsabilidad Civil Vehículos", Ramo2, Ramo)
-      )
+      ) |>
+      select(`Nro de Recibo`, `Fecha desde Recibo`, `Fecha hasta Recibo`, `Prima Bruta`, `Monto de Comisión`, Ramo, `Fecha de Cobro`)
     
-    Recibo_detallado_h <- homologar_ramos(Recibos_ramos_plan, tabla_mapeo)
+    #Incorporando data congelada o data de reserva
+    
+    Recibos_historico_2025 <- read_excel("recibos_normalizados.xlsx")
+    
+    Recibos_historicos_c <- Recibos_historico_2025 |>
+      rename("Nro de Recibo" = Nro_Recibo,
+             "Fecha desde Recibo" = Fecha_desde_Recibo,
+             "Fecha hasta Recibo" = Fecha_hasta_Recibo,
+             "Prima Bruta" = Monto_Prima_Bruta,
+             "Monto de Comisión" = Comisión_BS,
+             Ramo = Descripcion_Ramo,
+             "Fecha de Cobro" = Fecha_Cobro,
+             ) |>  
+      mutate(`Fecha desde Recibo`= parse_date_time(`Fecha desde Recibo`, "%d/%m/%Y"),
+             `Fecha hasta Recibo` = parse_date_time(`Fecha hasta Recibo`, "%d/%m/%Y"),
+             `Fecha de Cobro` = parse_date_time(`Fecha de Cobro`, "%d/%m/%Y")) |>
+      select(`Nro de Recibo`, `Fecha desde Recibo`, `Fecha hasta Recibo`, `Prima Bruta`, `Monto de Comisión`, Ramo, `Fecha de Cobro`)
+      
+    
+    Recibos_Consolidados <- rbind(Recibos_historicos_c, Recibos_ramos_plan)
+    
+    Recibo_detallado_h <- homologar_ramos(Recibos_Consolidados, tabla_mapeo)
     
     Recibo_detallado_h <- Recibo_detallado_h |>
       mutate(Ramo = ramo_estandar)
@@ -842,11 +991,11 @@ server <- function(input, output, session) {
                as.numeric(`Fecha hasta Recibo`) > fecha_evaluacion ~ as.numeric(`Fecha hasta Recibo`) - as.numeric(fecha_evaluacion),
                TRUE ~ 0),
              proporcion_RRC = as.numeric(dias_por_transcurrir) / (as.numeric(`Fecha hasta Recibo`) - as.numeric(`Fecha desde Recibo`)),
-             reserva_de_riesgo_en_curso = as.numeric(proporcion_RRC) * as.numeric(`Prima Bruta`),
+             reserva_de_riesgo_en_curso = as.numeric(proporcion_RRC) * as.numeric(prima_neta),
              proporcion_RRC = replace_na(proporcion_RRC, 0),
              reserva_de_riesgo_en_curso = replace_na(reserva_de_riesgo_en_curso, 0),
              rrc_reaseguro = as.numeric(proporcion_RRC) * `Prima Cedida`,
-             prima_retenida = as.numeric(`Prima Bruta`) - as.numeric(`Prima Cedida`),
+             prima_retenida = as.numeric(prima_neta) - as.numeric(`Prima Cedida`),
              rrc_retenida = as.numeric(reserva_de_riesgo_en_curso) - as.numeric(rrc_reaseguro),
              rrc_reaseguro = replace_na(rrc_reaseguro, 0),
              prima_retenida = replace_na(prima_retenida, 0),
@@ -878,8 +1027,8 @@ server <- function(input, output, session) {
     
     Recibos_SYSIP <- tbl(SYSIP, "ADRECIBOS") |> 
       filter(
-        fcobro >= f1,
-        fcobro <= f2,
+        as.Date(fcobro) >= f1,
+        as.Date(fcobro) <= f2,
         iestadorec == "C") |> 
       collect()
     
@@ -1007,61 +1156,95 @@ server <- function(input, output, session) {
   
   
   
-  output$descargar_txt <- downloadHandler(
-    filename = function() {
-      # Nombre del archivo con la fecha actual
-      paste("datos-extraidos-", format(input$f_cierre[2], "%Y-%m-%d"), ".csv", sep = "")
-    },
+  data_hist <- reactive({
+    
+   df <- read_excel("LM_analytics.xlsx") |>
+    mutate(fecha = as.Date(paste(año, mes, "01", sep = "-"))) |>
+   clean_names()
+   
+   df
+    
+  })
+  
+  
+  data_anual <- reactive({
+  
+ df <-  data_hist() |>
+      group_by(ano) |>
+      summarise(
+        Siniestralidad = mean(siniestros_incurridos_vs_prima_devengada_percent_3, na.rm = TRUE),
+        Comisiones = mean(comisiones_vs_primas_netas_cobradas_percent_4, na.rm = TRUE),
+        Adquisicion = mean(gastos_de_adquisicion_vs_primas_netas_cobradas_percent_5, na.rm = TRUE),
+        Administracion = mean(gastos_de_administracion_vs_primas_netas_cobradas_percent_6, na.rm = TRUE),
+        Reaseguro = mean(costo_del_reaseguro_vs_prima_devengada_percent_7, na.rm = TRUE),
+        Tasa_Combinada = mean(tasa_combinada_percent_8, na.rm = TRUE),
+        Cobertura = mean(indice_de_cobertura_de_reservas_9, na.rm = TRUE)
+      )
+ df
+    
+  })
+  # --- 1. Lógica Predictiva: Series Temporales ---
+  output$plot_series_temporales <- renderPlotly({
+    plot_ly(data_hist(), x = ~fecha) |>
+      add_lines(y = ~primas_netas_cobradas_1, name = "Primas", line = list(color = colores_LM$primary)) |>
+      add_lines(y = ~siniestros_totales_2_3_5, name = "Siniestros", line = list(color = colores_LM$secondary)) |>
+      layout(yaxis = list(title = "Monto (Miles de Bs.)"), hovermode = "x unified")
+  })
+  
+  # --- 2. Lógica Diagnóstica: RCV Diario ---
+  output$plot_rcv_diario <- renderPlotly({
+    # Simulación de granularidad diaria basada en el total mensual de RCV
+      plot_ly(data_hist(), x = ~fecha) |>
+        add_lines(y = ~siniestros_pagados_vs_primas_netas_cobradas_percent_1, name = "Siniestros Pagados", line = list(color = colores_LM$primary)) |>
+        add_lines(y = ~reservas_para_prestaciones_y_siniestros_pendientes_brutas_vs_primas_netas_cobradas_percent_2, name = "Reserva Siniestros Pendientes", line = list(color = colores_LM$secondary)) |>
+        layout(yaxis = list(title = "Porcentaje (%)"), hovermode = "x unified")
+  })
+  
+  # --- 3. Cuadro Comparativo ---
+  output$tabla_comparativa <- renderPlotly({
+    plot_ly(data_hist(), x = ~fecha) |>
+      add_lines(y = ~gastos_de_administracion_vs_primas_netas_cobradas_percent_6, name = "Gasto Administrativo", line = list(color = colores_LM$primary)) |>
+      add_lines(y = ~gastos_de_adquisicion_vs_primas_netas_cobradas_percent_5 , name = "Gastos de Adquisicion", line = list(color = colores_LM$secondary)) |>
+      add_lines(y = ~comisiones_vs_primas_netas_cobradas_percent_4 , name = "Comisiones", line = list(color = colores_LM$tertiary)) |>
+      layout(yaxis = list(title = "Porcentaje (%)"), hovermode = "x unified")
+  })
+  
+  # --- 4. Simulador Prescriptivo (Cálculos) ---
+  val_tc_sim <- reactive({
+    input$sim_comision + input$sim_gastos + input$sim_siniestros + input$sim_reaseguro
+  })
+  
+  output$resultado_sim_tc <- renderText({
+    paste0(format(val_tc_sim(), nsmall = 2), "%")
+  })
+  
+  output$semaforo_regulatorio <- renderUI({
+    res <- val_tc_sim()
+    # Semáforo según Tasa Combinada (Límite 100% SUDEASEG)
+    color <- if(res < 90) "#28a745" else if(res <= 100) "#fd7e14" else "#dc3545"
+    texto <- if(res < 90) "ESTADO: ÓPTIMO" else if(res <= 100) "ESTADO: PRECAUCIÓN" else "ESTADO: CRÍTICO"
+    
+    div(texto, style = paste0("color: white; background-color: ", color, 
+                              "; text-align: center; border-radius: 5px; padding: 10px; font-weight: bold;"))
+  })
+  
+  output$descargar_reporte <- downloadHandler(
+    filename = function() { paste0("Análisis_LM_", Sys.Date(), ".pdf") },
     content = function(file) {
-      # Escribir el contenido en el archivo temporal 'file'
-      # Usamos write_tsv o write_delim para formato TXT
-      write_delim(balance_filtrado(), file, delim = ";")
+      tempReport <- file.path(tempdir(), "reporte.Rmd")
+      reporte_txt <- paste0("
+---
+title: 'Reporte Actuarial - La Mundial de Seguros'
+output: pdf_document
+---
+## Análisis de Solvencia
+Tasa Combinada Proyectada: ", val_tc_sim(), "%
+Estado: ", if(val_tc_sim() < 100) "Cumple Normativa" else "Exceso de Límites", "
+")
+      writeLines(reporte_txt, tempReport)
+      rmarkdown::render(tempReport, output_file = file)
     }
   )
-  
-  #   # Renderizar Tabla
-  output$tabla_docs <- renderDT({
-    datatable(datos_db(), selection = 'single', options = list(pageLength = 10,
-                                                               dom = 'tp',
-                                                               ordering = FALSE,
-                                                               paging = FALSE,
-                                                               language = list(traduccion_es))) |> 
-      formatCurrency(columns = c('Saldo_inicial', 'Debe', 'Haber', 'Saldo_final'), 
-                     currency = "Bs. ", 
-                     interval = 3, 
-                     mark = "", 
-                     digits = 2)
-    
-  })
-  
-  
-  output$primas <- renderDT({
-    
-    w_primas$show()
-    on.exit(w_primas$hide())
-    
-    datatable(prima_DEFINITIVA(), class = 'cell-border hover', rownames = FALSE, selection = 'single', options = list(language =list(url = traduccion_es),
-                                 dom = 't',
-                                 ordering = FALSE,
-                                 paging = FALSE)) |>
-      formatStyle(c('Diferencia Primas', 'Diferencia Comisiones'), 
-                  color = styleInterval(c(-0.01, 0.01), c("#721c24", "#2c3e50", "#155724")),
-                  backgroundColor = styleInterval(c(-0.01, 0.01), c("#ffcccc", "#ffffff", "#d4edda"))) |> 
-      formatCurrency(columns = c('Prima Bruta Contable',
-                                 'Monto de Comisión Contable', 
-                                 'Prima Bruta Tecnica', 
-                                 'Monto de Comisión Tecnica',
-                                 'Diferencia Primas',
-                                 'Diferencia Comisiones'), 
-                     currency = "Bs. ", 
-                     interval = 3, 
-                     mark = ".", 
-                     dec.mark = ",",
-                     digits = 2)
-    
-    
-  })
-  
  
   output$sysipdd <- renderDT({
     
@@ -1089,7 +1272,7 @@ server <- function(input, output, session) {
       "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
     )
     
-    datatable(detalle, options = list(dom = 't')) |>
+    datatable(detalle) |>
     formatCurrency(columns = cols_a_formatear,
                                  currency = " ",
                                  interval = 3, 
@@ -1136,7 +1319,7 @@ server <- function(input, output, session) {
       "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
     )
     
-    datatable(detalle, options = list(dom = 't')) 
+    datatable(detalle) 
     
     # |>
     #   formatCurrency(columns = cols_a_formatear,
@@ -1185,7 +1368,7 @@ server <- function(input, output, session) {
       "Prima Cedida Facultativo", "Prima Cedida Facultativo Moneda Extranjera"
     )
     
-    datatable(detalle, options = list(dom = 't')) 
+    datatable(detalle) 
     
     # |>
     #   formatCurrency(columns = cols_a_formatear,
@@ -1257,6 +1440,151 @@ server <- function(input, output, session) {
                      dec.mark = ",",
                      digits = 2)
     
+    
+  })
+  
+  
+  # --- 1. LÓGICA DESCRIPTIVA (Datos Actuales) ---
+  output$tabla_descriptiva_it <- renderDT({
+    # Aquí conectarías con tus funciones rrc() o primas_SYSIP()
+    df <- data.frame(
+      Indicador = c("Índice de Comisiones (IC)", "Siniestralidad Incurrida (SI)", 
+                    "Gastos de Administración (IGA)", "Tasa Combinada (TC)"),
+      Valor = c(14.50, 62.30, 18.20, 95.00), # Ejemplo de valores reales
+      Meta = c(15.00, 65.00, 20.00, 100.00)
+    )
+    
+    datatable(df, options = list(dom = 't', ordering = FALSE), rownames = FALSE) %>%
+      formatRound('Valor', 2) %>%
+      formatStyle('Valor', 'Meta', 
+                  color = styleInterval(c(95, 100), c('green', 'orange', 'red')))
+  })
+  
+  # --- 2. LÓGICA DIAGNÓSTICA (Líneas y Áreas por Ramo) ---
+  output$plot_diagnostico_ramos <- renderPlotly({
+    df <- datos_rcv_diarios()
+    
+    plot_ly(df, x = ~Fecha) %>%
+      # Área de Primas Diarias
+      add_trace(
+        y = ~Primas, 
+        type = 'scatter', 
+        mode = 'lines+markers', 
+        name = 'Primas RCV',
+        fill = 'tozeroy', 
+        fillcolor = 'rgba(22, 42, 127, 0.2)', # Azul Primario (_brand.yml)
+        line = list(color = colores_LM$primary, width = 2),
+        marker = list(color = colores_LM$primary, size = 4)
+      ) %>%
+      # Área de Siniestros Diarios
+      add_trace(
+        y = ~Siniestros, 
+        type = 'scatter', 
+        mode = 'lines+markers', 
+        name = 'Siniestros RCV',
+        fill = 'tozeroy', 
+        fillcolor = 'rgba(255, 102, 117, 0.4)', # Coral Secundario (_brand.yml)
+        line = list(color = colores_LM$secondary, width = 2),
+        marker = list(color = colores_LM$secondary, size = 4)
+      ) %>%
+      layout(
+        title = list(
+          text = "<b>Diagnóstico Diario: RCV (Primas vs Siniestros)</b>",
+          font = list(family = colores_LM$font, color = colores_LM$primary)
+        ),
+        xaxis = list(
+          title = "Días del Mes",
+          type = 'date',
+          tickformat = "%d-%b",
+          gridcolor = "#f0f0f0"
+        ),
+        yaxis = list(
+          title = "Monto (Bs.)",
+          gridcolor = "#f0f0f0"
+        ),
+        hovermode = "x unified",
+        paper_bgcolor = 'rgba(0,0,0,0)',
+        plot_bgcolor = 'rgba(0,0,0,0)',
+        legend = list(orientation = 'h', y = -0.2),
+        font = list(family = colores_LM$font)
+      )
+  })
+  
+  # --- 3. LÓGICA PREDICTIVA (Tendencia con Áreas) ---
+  output$plot_predictivo_siniestros <- renderPlotly({
+    meses <- seq(as.Date("2025-01-01"), by = "month", length.out = 12)
+    valor <- c(60, 62, 59, 65, 68, 70, 72, 75, 73, 71, 75, 78)
+    
+    plot_ly(x = meses) %>%
+      add_lines(y = valor, name = "Histórico", line = list(color = colores_LM$primary, width = 3)) %>%
+      add_trace(x = seq(as.Date("2025-12-01"), by = "month", length.out = 3),
+                y = c(78, 81, 84), name = "Proyección (IA)", 
+                type = 'scatter', mode = 'lines',
+                line = list(color = colores_LM$secondary, dash = 'dot', width = 3),
+                fill = 'tozeroy', fillcolor = 'rgba(255, 102, 117, 0.1)') %>%
+      layout(paper_bgcolor = 'rgba(0,0,0,0)', plot_bgcolor = 'rgba(0,0,0,0)',
+             font = list(family = colores_LM$font),
+             yaxis = list(title = "Siniestralidad %"))
+  })
+  
+  # --- 4. LÓGICA PRESCRIPTIVA (Simulador dinámico) ---
+  val_tc <- reactive({
+    input$sim_comision + input$sim_gastos + input$sim_siniestros + input$sim_reaseguro
+  })
+
+  output$resultado_sim_tc <- renderText({
+    paste0(format(val_tc(), nsmall = 2), "%")
+  })
+
+  output$status_sim <- renderUI({
+    res <- val_tc()
+    color <- if(res < 95) "#28a745" else if(res <= 100) "#fd7e14" else "#dc3545"
+    texto <- if(res < 95) "UTILIDAD TÉCNICA" else if(res <= 100) "EQUILIBRIO" else "PÉRDIDA TÉCNICA"
+
+    div(texto, style = paste0("color: white; background-color: ", color,
+                              "; text-align: center; border-radius: 5px; padding: 5px; font-weight: bold;"))
+  })
+  
+  
+  output$plot_tasa_combinada <- renderPlotly({
+  plot_ly(data_anual(), x = ~as.factor(ano)) |>
+    add_bars(y = ~Siniestralidad, name = "Siniestralidad", marker = list(color = "#162a7f")) |>
+    add_bars(y = ~Comisiones, name = "Comisiones", marker = list(color = "#ff6675")) |>
+    add_bars(y = ~Adquisicion, name = "Gatos Adquisición", marker = list(color = "#acacac")) |>
+    add_bars(y = ~Administracion, name = "Gastos Adm.", marker = list(color = "#091133")) |>
+    add_bars(y = ~Reaseguro, name = "Costo Reaseguro", marker = list(color = "#5cb85c")) |>
+    layout(
+      barmode = 'relative', # Permite valores negativos (reaseguro)
+      title = "<b>Composición de la Tasa Combinada por Año</b>",
+      xaxis = list(title = "Año"),
+      yaxis = list(title = "Porcentaje (%)", ticksuffix = "%"),
+      font = list(family = "Poppins"),
+      legend = list(orientation = 'h', y = -0.2)
+    )
+  })
+  
+  output$indicadores <- renderDT({
+    
+    data_anual() |>
+      datatable(
+        colnames = c("Año", "Siniestralidad (%)", "Comisiones (%)", "Gastos Adq. (%)", 
+                     "Gastos Adm. (%)", "Reaseguro (%)", "Tasa Combinada (%)", "Cobertura (x)"),
+        options = list(dom = 't', ordering = FALSE),
+        rownames = FALSE
+      ) |>
+      formatRound(columns = 2:8, digits = 2) |>
+      formatStyle(
+        'Tasa_Combinada',
+        backgroundColor = styleInterval(100, c('rgba(40, 167, 69, 0.2)', 'rgba(220, 53, 69, 0.2)')),
+        fontWeight = 'bold'
+      )
+    
+  })
+  
+  output$igt <- renderDT({
+  
+    data_hist() |>
+      rename_with(~ to_any_case(., case = "title"))
     
   })
   
